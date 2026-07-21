@@ -3,5 +3,6 @@ yfinance
 requests
 pydantic
 python-dotenv
+streamlit
 pytest
 pytest-asyncio

@@ -12,8 +12,10 @@ pattern. Revisit if/when Workflow matures.
 
 import json
 from datetime import datetime, timezone
+from typing import Callable, Optional
 
 from google.adk.agents import ParallelAgent, SequentialAgent
+from google.adk.events import Event
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
@@ -58,8 +60,17 @@ def _parse_json(text: str) -> dict:
     return json.loads(cleaned)
 
 
-async def run_research_brief(ticker: str, user_id: str = "orchestrator_user") -> ResearchBrief:
-    """Run the full pipeline for a ticker and return the assembled brief."""
+async def run_research_brief(
+    ticker: str,
+    user_id: str = "orchestrator_user",
+    on_event: Optional[Callable[[Event], None]] = None,
+) -> ResearchBrief:
+    """Run the full pipeline for a ticker and return the assembled brief.
+
+    on_event, if given, is called synchronously once per streamed event
+    (e.g. to drive live per-agent status in a UI) - purely observational,
+    it cannot alter pipeline execution.
+    """
     ticker = (ticker or "").strip().upper()
     pipeline = build_pipeline()
     runner = InMemoryRunner(agent=pipeline, app_name=APP_NAME)
@@ -75,6 +86,8 @@ async def run_research_brief(ticker: str, user_id: str = "orchestrator_user") ->
 
     final_text = None
     async for event in runner.run_async(user_id=user_id, session_id=session.id, new_message=message):
+        if on_event:
+            on_event(event)
         if event.content and event.content.parts:
             for part in event.content.parts:
                 if part.text:

@@ -33,12 +33,26 @@ On failure (the tool reported an error):
 }
 """
 
-research_agent = Agent(
-    name="research_agent",
-    model="gemini-3.5-flash-lite",
-    description="Quantitative stock research agent: price, P/E ratio, and revenue growth only.",
-    instruction=RESEARCH_AGENT_INSTRUCTION,
-    tools=[get_stock_data],
-)
+def build_research_agent(output_key: str | None = None) -> Agent:
+    """Construct a fresh Research Agent instance.
+
+    A factory rather than a shared singleton: ADK raises a ValidationError
+    if the same agent object is attached as a sub-agent to more than one
+    parent (e.g. reused inside orchestrator.py's ParallelAgent while also
+    being the module-level singleton below), so composed pipelines must
+    build their own instance via this function rather than importing
+    research_agent directly.
+    """
+    return Agent(
+        name="research_agent",
+        model="gemini-3.5-flash-lite",
+        description="Quantitative stock research agent: price, P/E ratio, and revenue growth only.",
+        instruction=RESEARCH_AGENT_INSTRUCTION,
+        tools=[get_stock_data],
+        output_key=output_key,
+    )
+
+
+research_agent = build_research_agent()
 
 root_agent = research_agent

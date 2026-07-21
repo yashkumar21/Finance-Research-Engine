@@ -51,12 +51,23 @@ On failure (the tool reported an error):
 }
 """
 
-sentiment_agent = Agent(
-    name="sentiment_agent",
-    model="gemini-3.5-flash-lite",
-    description="Qualitative news-sentiment agent: bullish/bearish/neutral judgment from recent headlines, with citations.",
-    instruction=SENTIMENT_AGENT_INSTRUCTION,
-    tools=[get_company_news],
-)
+def build_sentiment_agent(output_key: str | None = None) -> Agent:
+    """Construct a fresh Sentiment Agent instance.
+
+    A factory rather than a shared singleton - see build_research_agent's
+    docstring for why: ADK forbids attaching the same agent object as a
+    sub-agent to more than one parent.
+    """
+    return Agent(
+        name="sentiment_agent",
+        model="gemini-3.5-flash-lite",
+        description="Qualitative news-sentiment agent: bullish/bearish/neutral judgment from recent headlines, with citations.",
+        instruction=SENTIMENT_AGENT_INSTRUCTION,
+        tools=[get_company_news],
+        output_key=output_key,
+    )
+
+
+sentiment_agent = build_sentiment_agent()
 
 root_agent = sentiment_agent

@@ -55,3 +55,10 @@ class SentimentAssessmentError(BaseModel):
     success: bool = False
     ticker: str
     error: str
+
+
+class ResearchBrief(BaseModel):
+    ticker: str
+    research: dict
+    sentiment: dict
+    brief_markdown: str

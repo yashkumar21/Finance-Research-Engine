@@ -35,7 +35,7 @@ On failure (the tool reported an error):
 
 research_agent = Agent(
     name="research_agent",
-    model="gemini-3.6-flash",
+    model="gemini-3.5-flash-lite",
     description="Quantitative stock research agent: price, P/E ratio, and revenue growth only.",
     instruction=RESEARCH_AGENT_INSTRUCTION,
     tools=[get_stock_data],

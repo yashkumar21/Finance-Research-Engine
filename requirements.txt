@@ -1,0 +1,6 @@
+google-adk
+yfinance
+pydantic
+python-dotenv
+pytest
+pytest-asyncio

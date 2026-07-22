@@ -1,17 +1,37 @@
 # Finance Research Engine
 
 Multi-agent financial research system built with Google's Agent Development Kit (ADK) and Gemini.
-All three agents currently use `gemini-3.5-flash-lite`. This has moved a few times already: the
-original target `gemini-2.5-flash` was deprecated for new API keys, its replacement
-`gemini-3.6-flash` hit its free-tier daily quota (20 requests/day/model) from repeated test runs,
-and `gemini-2.5-flash-lite` turned out to be deprecated too. See `agents/*.py` — swap the `model=`
-string there if you hit another quota wall or want a different model. Note the free tier also caps
-requests at 15/minute/model — running the full test suite plus a manual CLI call back-to-back can
-transiently 429; that's expected and clears within a few seconds, not a code issue.
+An Orchestrator runs a quantitative Research Agent and a qualitative Sentiment Agent in parallel,
+then a synthesis-only Analyst Agent combines both into a markdown research brief. A Streamlit
+frontend sits on top.
 
-Full target architecture: a Workflow Router triggers a Research Agent (quantitative)
-and Sentiment Agent (qualitative) in parallel, then an Analyst Agent synthesizes
-both into a markdown research brief. A Streamlit frontend will sit on top later.
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Streamlit UI] --> O[Orchestrator]
+
+    subgraph Parallel execution
+        R[Research Agent]
+        S[Sentiment Agent]
+    end
+
+    O --> R
+    O --> S
+
+    T1[(yfinance)] --> R
+    T2[(Finnhub news)] --> S
+
+    R -- quant JSON --> A[Analyst Agent]
+    S -- sentiment JSON --> A
+
+    A --> B[Markdown research brief]
+```
+
+Research and Sentiment run concurrently via ADK's `ParallelAgent` (fan-out), and their structured
+JSON outputs are fed into the Analyst Agent via ADK's `SequentialAgent` (fan-in) for synthesis —
+each agent has a single, narrow responsibility and no agent invents data outside its own tool's
+output.
 
 **Currently implemented**: the full pipeline — yfinance tool + Research Agent, Finnhub news
 tool + Sentiment Agent, and the Orchestrator + Analyst Agent that runs the first two in
@@ -79,3 +99,13 @@ python run_research_agent.py AAPL
 python run_research_agent.py ZZZZZZINVALID
 python run_orchestrator.py AAPL
 ```
+
+## Notes on model selection
+
+All three agents currently use `gemini-3.5-flash-lite`. This has moved a few times already: the
+original target `gemini-2.5-flash` was deprecated for new API keys, its replacement
+`gemini-3.6-flash` hit its free-tier daily quota (20 requests/day/model) from repeated test runs,
+and `gemini-2.5-flash-lite` turned out to be deprecated too. See `agents/*.py` — swap the `model=`
+string there if you hit another quota wall or want a different model. Note the free tier also caps
+requests at 15/minute/model — running the full test suite plus a manual CLI call back-to-back can
+transiently 429; that's expected and clears within a few seconds, not a code issue.

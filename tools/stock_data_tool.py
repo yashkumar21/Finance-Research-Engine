@@ -52,6 +52,48 @@ def _fetch_quote(ticker: str, api_key: str) -> dict:
     return resp.json() or {}
 
 
+def _resolve_and_quote(query: str, api_key: str) -> tuple[str, dict]:
+    """Resolve ``query`` to a ticker symbol and return (ticker, quote dict).
+
+    Tries the literal input as a ticker first; only falls back to the
+    company-name search in _resolve_symbol if that fails, so a plain ticker
+    like "AAPL" never pays for the extra request.
+    """
+    ticker = query
+    quote = _fetch_quote(ticker, api_key)
+    if not quote.get("t"):
+        resolved = _resolve_symbol(ticker, api_key)
+        if resolved and resolved != ticker:
+            ticker = resolved
+            quote = _fetch_quote(ticker, api_key)
+    return ticker, quote
+
+
+def resolve_ticker(query: str) -> str:
+    """Best-effort resolve a ticker symbol or company name to its canonical ticker.
+
+    Used by the orchestrator to pin down the ticker before the pipeline runs,
+    so the Analyst Agent's brief heading matches the data get_stock_data
+    fetches (e.g. "Apple" -> "AAPL"), instead of echoing whatever the user
+    literally typed. Returns the uppercased input unchanged if it can't be
+    resolved - no FINNHUB_API_KEY, a network error, or no match found - so
+    callers still get get_stock_data's normal structured error downstream.
+    """
+    query = (query or "").strip().upper()
+    if not query:
+        return query
+
+    api_key = os.environ.get("FINNHUB_API_KEY")
+    if not api_key:
+        return query
+
+    try:
+        ticker, _ = _resolve_and_quote(query, api_key)
+        return ticker
+    except requests.exceptions.RequestException:
+        return query
+
+
 def get_stock_data(ticker: str) -> dict:
     """Fetch quantitative stock data for a given ticker symbol or company name.
 
@@ -89,13 +131,7 @@ def get_stock_data(ticker: str) -> dict:
         return {"success": False, "ticker": ticker, "error": "FINNHUB_API_KEY is not set."}
 
     try:
-        quote = _fetch_quote(ticker, api_key)
-
-        if not quote.get("t"):
-            resolved = _resolve_symbol(ticker, api_key)
-            if resolved and resolved != ticker:
-                ticker = resolved
-                quote = _fetch_quote(ticker, api_key)
+        ticker, quote = _resolve_and_quote(ticker, api_key)
 
         if not quote.get("t"):
             return {

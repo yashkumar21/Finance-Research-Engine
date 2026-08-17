@@ -23,6 +23,7 @@ from agents.analyst_agent import build_analyst_agent
 from agents.research_agent import build_research_agent
 from agents.sentiment_agent import build_sentiment_agent
 from schemas import ResearchBrief
+from tools.stock_data_tool import resolve_ticker
 
 APP_NAME = "finance_research_engine_orchestrator"
 
@@ -71,7 +72,7 @@ async def run_research_brief(
     (e.g. to drive live per-agent status in a UI) - purely observational,
     it cannot alter pipeline execution.
     """
-    ticker = (ticker or "").strip().upper()
+    ticker = resolve_ticker(ticker)
     pipeline = build_pipeline()
     runner = InMemoryRunner(agent=pipeline, app_name=APP_NAME)
 

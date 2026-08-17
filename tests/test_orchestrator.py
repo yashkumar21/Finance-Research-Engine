@@ -148,3 +148,16 @@ async def test_end_to_end_aapl_brief_contains_real_data():
 
     for phrase in FORBIDDEN_PHRASES:
         assert phrase not in lowered
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_company_name_resolves_ticker_in_brief():
+    brief = await run_research_brief("Apple")
+
+    assert brief.ticker == "AAPL"
+    assert brief.research["ticker"] == "AAPL"
+    assert brief.research["success"] is True
+
+    # The Analyst's heading is templated from the same resolved ticker used
+    # to fetch data, so it must read "AAPL", not the literal input "APPLE".
+    assert "# AAPL Research Brief" in brief.brief_markdown

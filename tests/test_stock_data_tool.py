@@ -5,7 +5,7 @@ No mocking - these hit the Finnhub API directly, per design.
 
 import pytest
 
-from tools.stock_data_tool import get_stock_data
+from tools.stock_data_tool import get_stock_data, resolve_ticker
 
 
 def _assert_structure(result: dict):
@@ -57,6 +57,18 @@ def test_company_name_resolves_to_ticker():
     assert result["success"] is True
     assert result["ticker"] == "AAPL"
     assert result["price"] > 0
+
+
+def test_resolve_ticker_passes_through_literal_ticker():
+    assert resolve_ticker("AAPL") == "AAPL"
+
+
+def test_resolve_ticker_resolves_company_name():
+    assert resolve_ticker("Apple") == "AAPL"
+
+
+def test_resolve_ticker_unresolvable_input_passes_through_unchanged():
+    assert resolve_ticker("ZZZZZZINVALID") == "ZZZZZZINVALID"
 
 
 def test_invalid_ticker_returns_structured_error_not_exception():

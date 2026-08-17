@@ -19,7 +19,7 @@ flowchart LR
     O --> R
     O --> S
 
-    T1[(yfinance)] --> R
+    T1[(Finnhub quote/metrics)] --> R
     T2[(Finnhub news)] --> S
 
     R -- quant JSON --> A[Analyst Agent]
@@ -33,7 +33,7 @@ JSON outputs are fed into the Analyst Agent via ADK's `SequentialAgent` (fan-in)
 each agent has a single, narrow responsibility and no agent invents data outside its own tool's
 output.
 
-**Currently implemented**: the full pipeline — yfinance tool + Research Agent, Finnhub news
+**Currently implemented**: the full pipeline — Finnhub stock data tool + Research Agent, Finnhub news
 tool + Sentiment Agent, and the Orchestrator + Analyst Agent that runs the first two in
 parallel and synthesizes a markdown brief.
 
@@ -50,7 +50,7 @@ cp .env.example .env   # then fill in GOOGLE_API_KEY (https://aistudio.google.co
 ## Project layout
 
 - `schemas.py` — shared Pydantic models for every tool/agent output shape.
-- `tools/stock_data_tool.py` — `get_stock_data(ticker)`, wraps yfinance.
+- `tools/stock_data_tool.py` — `get_stock_data(ticker)`, wraps Finnhub.
 - `tools/news_tool.py` — `get_company_news(ticker)`, wraps Finnhub for raw headlines.
 - `agents/research_agent.py` — quantitative Research Agent; JSON-only output (price, P/E, revenue growth).
 - `agents/sentiment_agent.py` — qualitative Sentiment Agent; judges bullish/bearish/neutral from headlines, with citations.

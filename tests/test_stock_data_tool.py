@@ -1,6 +1,6 @@
 """Real-network tests for tools.stock_data_tool.get_stock_data.
 
-No mocking - these hit Yahoo Finance directly, per design.
+No mocking - these hit the Finnhub API directly, per design.
 """
 
 import pytest

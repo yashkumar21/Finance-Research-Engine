@@ -1,5 +1,4 @@
 google-adk
-yfinance
 requests
 pydantic
 python-dotenv

@@ -1,4 +1,4 @@
-"""Research Agent: quantitative-only ticker research, wraps the yfinance tool."""
+"""Research Agent: quantitative-only ticker research, wraps the Finnhub stock data tool."""
 
 from google.adk.agents import Agent
 

@@ -1,7 +1,7 @@
 """Tests for tools.news_tool.get_company_news.
 
 Real-network tests against Finnhub for the happy path, low/no-coverage
-case, and invalid ticker - matching the yfinance tool test convention.
+case, and invalid ticker - matching the stock data tool test convention.
 Rate-limit and network-failure handling is instead simulated by
 monkeypatching requests.get: deliberately hammering Finnhub's free tier
 (60 calls/min) to trigger a real 429 would be slow, flaky, and would burn

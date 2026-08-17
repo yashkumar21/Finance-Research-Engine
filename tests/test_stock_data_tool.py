@@ -51,6 +51,14 @@ def test_brk_b_dash_ticker():
     assert result["price"] > 0
 
 
+def test_company_name_resolves_to_ticker():
+    result = get_stock_data("Apple")
+    _assert_structure(result)
+    assert result["success"] is True
+    assert result["ticker"] == "AAPL"
+    assert result["price"] > 0
+
+
 def test_invalid_ticker_returns_structured_error_not_exception():
     result = get_stock_data("ZZZZZZINVALID")
     _assert_structure(result)

@@ -1,6 +1,7 @@
 """Finnhub-backed tool for the Research Agent."""
 
 import os
+from typing import Optional
 
 import requests
 from dotenv import load_dotenv
@@ -10,29 +11,73 @@ load_dotenv()
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 
+def _resolve_symbol(query: str, api_key: str) -> Optional[str]:
+    """Best-effort lookup of a ticker symbol for a company name via Finnhub's /search.
+
+    Only called as a fallback when a literal quote lookup for the query fails,
+    so a plain ticker like "AAPL" never pays for this extra request. Prefers
+    plain US-listed common stock (no exchange suffix like ".TO" or ".SW") over
+    other listings of the same company; falls back to the top raw result.
+    """
+    try:
+        resp = requests.get(
+            f"{FINNHUB_BASE_URL}/search",
+            params={"q": query, "token": api_key},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        results = (resp.json() or {}).get("result") or []
+    except requests.exceptions.RequestException:
+        return None
+
+    preferred = [
+        r
+        for r in results
+        if r.get("type") == "Common Stock" and "." not in (r.get("symbol") or "")
+    ]
+    for r in preferred or results:
+        symbol = r.get("symbol")
+        if symbol:
+            return symbol
+    return None
+
+
+def _fetch_quote(ticker: str, api_key: str) -> dict:
+    resp = requests.get(
+        f"{FINNHUB_BASE_URL}/quote",
+        params={"symbol": ticker, "token": api_key},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json() or {}
+
+
 def get_stock_data(ticker: str) -> dict:
-    """Fetch quantitative stock data for a given ticker symbol.
+    """Fetch quantitative stock data for a given ticker symbol or company name.
 
     Retrieves the latest price, trailing P/E ratio, and year-over-year revenue
-    growth rate for the given ticker using the Finnhub API. This tool performs
-    no qualitative analysis and makes no buy/sell recommendations - it only
-    returns raw numeric data.
+    growth rate using the Finnhub API. If the input isn't a literal ticker
+    (e.g. "Apple" instead of "AAPL"), falls back to a symbol search and
+    resolves it before fetching data. This tool performs no qualitative
+    analysis and makes no buy/sell recommendations - it only returns raw
+    numeric data.
 
     Args:
-        ticker: The stock ticker symbol to look up, e.g. "AAPL", "MSFT", "SPY".
+        ticker: A stock ticker symbol or company name, e.g. "AAPL", "MSFT",
+            "SPY", or "Apple".
 
     Returns:
         On success, a dict with keys:
             success (bool): True
-            ticker (str): the ticker symbol, uppercased
+            ticker (str): the resolved ticker symbol, uppercased
             price (float): most recent price
             pe_ratio (float or None): trailing P/E ratio, if available
             revenue_growth (float or None): YoY revenue growth rate (e.g. 0.0868
                 for 8.68%), if available
-        On failure (invalid ticker, no data found, or a network/API error), a
+        On failure (invalid ticker/name, no data found, or a network/API error), a
         dict with keys:
             success (bool): False
-            ticker (str): the ticker symbol, uppercased
+            ticker (str): the ticker symbol or name as given, uppercased
             error (str): a human-readable description of what went wrong
     """
     ticker = (ticker or "").strip().upper()
@@ -44,13 +89,13 @@ def get_stock_data(ticker: str) -> dict:
         return {"success": False, "ticker": ticker, "error": "FINNHUB_API_KEY is not set."}
 
     try:
-        quote_resp = requests.get(
-            f"{FINNHUB_BASE_URL}/quote",
-            params={"symbol": ticker, "token": api_key},
-            timeout=10,
-        )
-        quote_resp.raise_for_status()
-        quote = quote_resp.json() or {}
+        quote = _fetch_quote(ticker, api_key)
+
+        if not quote.get("t"):
+            resolved = _resolve_symbol(ticker, api_key)
+            if resolved and resolved != ticker:
+                ticker = resolved
+                quote = _fetch_quote(ticker, api_key)
 
         if not quote.get("t"):
             return {

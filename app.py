@@ -18,7 +18,7 @@ load_dotenv()
 # neither of these files exists - not just a catchable Python exception -
 # so check for the file first and only touch st.secrets when one is there.
 _SECRETS_PATHS = [
-    Path.home() / ".streamlit" / "1.toml",
+    Path.home() / ".streamlit" / "secrets.toml",
     Path(__file__).parent / ".streamlit" / "secrets.toml",
 ]
 _SECRETS_AVAILABLE = any(p.exists() for p in _SECRETS_PATHS)

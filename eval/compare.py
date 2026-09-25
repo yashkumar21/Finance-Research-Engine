@@ -7,14 +7,17 @@ agreement, a confusion matrix, per-ticker cost and latency for each model,
 the distribution of Jev's material_event / needs_analysis probabilities,
 and how many tickers each escalation-policy variant would escalate.
 
-Agreement with Gemini is not accuracy - Gemini is not ground truth. Hand
-labels (a later step) are what accuracy gets measured against.
+Agreement with Gemini is not accuracy - Gemini is not ground truth. When
+hand labels exist for the snapshot (eval/label.py), also reports each
+model's sentiment accuracy, escalation recall/precision against labeled
+material events, and a threshold sweep.
 
 Usage: python -m eval.compare [--snapshot eval/data/snapshot-....json]
 """
 
 import argparse
 import asyncio
+import itertools
 import json
 import statistics
 import time
@@ -36,6 +39,7 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT_DIR = ROOT / "eval" / "data"
 RESULTS_DIR = ROOT / "eval" / "results"
+LABELS_PATH = ROOT / "eval" / "data" / "labels.json"
 APP_NAME = "finance_research_engine_eval"
 LABELS = ["bullish", "bearish", "neutral"]
 GEMINI_MAX_RETRIES = 3
@@ -48,6 +52,14 @@ POLICY_VARIANTS = {
     "material_event only": PolicyConfig(
         needs_analysis_threshold=1.01, min_sentiment_confidence=0.0, price_move_threshold_pct=1000
     ),
+}
+
+# Thresholds tried by the sweep; 1.01 disables a rule, 0.0 disables the
+# low-confidence fallback. Price-move threshold stays at the default 4%.
+SWEEP_GRID = {
+    "material_event": [0.4, 0.5, 0.6, 0.7],
+    "needs_analysis": [0.6, 0.65, 0.7, 1.01],
+    "min_sentiment_confidence": [0.0, 0.3, 0.4, 0.5],
 }
 
 
@@ -135,6 +147,74 @@ def _summary(values: list[float]) -> dict:
     }
 
 
+def load_labels(snapshot_name: str) -> dict:
+    """Hand labels by ticker for this snapshot, or {} if there are none yet."""
+    if not LABELS_PATH.exists():
+        return {}
+    data = json.loads(LABELS_PATH.read_text())
+    return data["labels"] if data.get("snapshot") == snapshot_name else {}
+
+
+def _escalation_vs_labels(rows: list[dict], labels: dict, config: PolicyConfig) -> dict:
+    """Escalation rate, plus recall/precision against hand-labeled material events."""
+    escalated = {
+        r["ticker"] for r in rows if decide(r["jev"], r["quote"].get("pct_change"), config).escalate
+    }
+    material = {t for t, lab in labels.items() if lab["material_event"]}
+    caught = escalated & material
+    return {
+        "rate": round(len(escalated) / len(rows), 3) if rows else 0,
+        "recall": round(len(caught) / len(material), 3) if material else None,
+        "precision": round(len(caught) / len(escalated), 3) if escalated else None,
+        "missed": sorted(material - escalated),
+    }
+
+
+def threshold_sweep(rows: list[dict], labels: dict) -> list[dict]:
+    """Every combination in SWEEP_GRID, scored on the hand-labeled tickers."""
+    rows = [r for r in rows if r["ticker"] in labels]
+    results = []
+    for material, needs, confidence in itertools.product(*SWEEP_GRID.values()):
+        config = PolicyConfig(
+            material_event_threshold=material,
+            needs_analysis_threshold=needs,
+            min_sentiment_confidence=confidence,
+        )
+        results.append(
+            {
+                "material_event_threshold": material,
+                "needs_analysis_threshold": needs,
+                "min_sentiment_confidence": confidence,
+                **_escalation_vs_labels(rows, labels, config),
+            }
+        )
+    return results
+
+
+def label_metrics(rows: list[dict], labels: dict) -> dict:
+    labeled = [r for r in rows if r["ticker"] in labels]
+    if not labeled:
+        return {}
+
+    def accuracy(model: str) -> float | None:
+        judged = [r for r in labeled if r[model].get("success")]
+        if not judged:
+            return None
+        right = sum(1 for r in judged if r[model]["sentiment"] == labels[r["ticker"]]["sentiment"])
+        return round(right / len(judged), 3)
+
+    return {
+        "labeled": len(labeled),
+        "material_events": sum(1 for r in labeled if labels[r["ticker"]]["material_event"]),
+        "jev_accuracy": accuracy("jev"),
+        "gemini_accuracy": accuracy("gemini"),
+        "escalation_vs_labels": {
+            name: _escalation_vs_labels(labeled, labels, config) for name, config in POLICY_VARIANTS.items()
+        },
+        "sweep": threshold_sweep(rows, labels),
+    }
+
+
 def compute_metrics(rows: list[dict]) -> dict:
     both = [r for r in rows if r["jev"].get("success") and r["gemini"].get("success")]
     jev_ok = [r for r in rows if r["jev"].get("success")]
@@ -176,6 +256,58 @@ def compute_metrics(rows: list[dict]) -> dict:
         "escalation_by_policy": escalation,
         "jev_models": sorted({r["jev"]["model"] for r in jev_ok}),
     }
+
+
+def _pct(value: float | None) -> str:
+    return f"{value:.0%}" if value is not None else "n/a"
+
+
+def render_label_section(lm: dict) -> list[str]:
+    if not lm:
+        return ["", "## Hand labels", "", "No labels for this snapshot yet - run `python -m eval.label`."]
+
+    lines = [
+        "",
+        f"## Against hand labels ({lm['labeled']} tickers, {lm['material_events']} material events)",
+        "",
+        "| Model | Sentiment accuracy |",
+        "|---|---|",
+        f"| Jev | {_pct(lm['jev_accuracy'])} |",
+        f"| Gemini | {_pct(lm['gemini_accuracy'])} |",
+        "",
+        "Recall = share of hand-labeled material events that got escalated. "
+        "Precision = share of escalations that were labeled material events.",
+        "",
+        "| Policy | Escalation rate | Recall | Precision | Missed events |",
+        "|---|---|---|---|---|",
+    ]
+    for name, e in lm["escalation_vs_labels"].items():
+        lines.append(
+            f"| {name} | {_pct(e['rate'])} | {_pct(e['recall'])} | {_pct(e['precision'])} | {', '.join(e['missed']) or '-'} |"
+        )
+
+    sweep = lm["sweep"]
+    best_recall = max((s["recall"] or 0) for s in sweep)
+    target = min(0.9, best_recall)
+    qualifying = sorted(
+        (s for s in sweep if (s["recall"] or 0) >= target), key=lambda s: (s["rate"], -(s["recall"] or 0))
+    )[:10]
+    lines += [
+        "",
+        f"## Threshold sweep - lowest escalation rate with recall >= {target:.0%}",
+        "",
+        f"{len(sweep)} combinations tried; price-move threshold fixed at 4%. "
+        "needs_analysis 1.01 = rule off; confidence 0.0 = fallback off.",
+        "",
+        "| material_event | needs_analysis | min confidence | Escalation rate | Recall | Precision |",
+        "|---|---|---|---|---|---|",
+    ]
+    for s in qualifying:
+        lines.append(
+            f"| {s['material_event_threshold']} | {s['needs_analysis_threshold']} | {s['min_sentiment_confidence']} | "
+            f"{_pct(s['rate'])} | {_pct(s['recall'])} | {_pct(s['precision'])} |"
+        )
+    return lines
 
 
 def render_markdown(snapshot_path: Path, rows: list[dict], m: dict) -> str:
@@ -224,6 +356,8 @@ def render_markdown(snapshot_path: Path, rows: list[dict], m: dict) -> str:
     lines += ["", "## Escalation rate by policy variant", "", "| Policy | Escalated | Rate |", "|---|---|---|"]
     for name, e in m["escalation_by_policy"].items():
         lines.append(f"| {name} | {e['escalated']}/{m['tickers']} | {e['rate']:.0%} |")
+
+    lines += render_label_section(m.get("labels") or {})
 
     lines += [
         "",
@@ -280,6 +414,7 @@ async def main() -> None:
         )
 
     metrics = compute_metrics(rows)
+    metrics["labels"] = label_metrics(rows, load_labels(snapshot_path.name))
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")

@@ -39,7 +39,8 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT_DIR = ROOT / "eval" / "data"
 RESULTS_DIR = ROOT / "eval" / "results"
-LABELS_PATH = ROOT / "eval" / "data" / "labels.json"
+# The first labeled set predates per-snapshot label files.
+LEGACY_LABELS_PATH = SNAPSHOT_DIR / "labels.json"
 APP_NAME = "finance_research_engine_eval"
 LABELS = ["bullish", "bearish", "neutral"]
 GEMINI_MAX_RETRIES = 3
@@ -147,12 +148,19 @@ def _summary(values: list[float]) -> dict:
     }
 
 
+def labels_path(snapshot_name: str) -> Path:
+    """Where this snapshot's hand labels live: labels-<snapshot stem>.json,
+    or the legacy labels.json if that is the set it holds."""
+    if LEGACY_LABELS_PATH.exists():
+        if json.loads(LEGACY_LABELS_PATH.read_text()).get("snapshot") == snapshot_name:
+            return LEGACY_LABELS_PATH
+    return SNAPSHOT_DIR / f"labels-{Path(snapshot_name).stem}.json"
+
+
 def load_labels(snapshot_name: str) -> dict:
     """Hand labels by ticker for this snapshot, or {} if there are none yet."""
-    if not LABELS_PATH.exists():
-        return {}
-    data = json.loads(LABELS_PATH.read_text())
-    return data["labels"] if data.get("snapshot") == snapshot_name else {}
+    path = labels_path(snapshot_name)
+    return json.loads(path.read_text())["labels"] if path.exists() else {}
 
 
 def _escalation_vs_labels(rows: list[dict], labels: dict, config: PolicyConfig) -> dict:

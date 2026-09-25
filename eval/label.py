@@ -5,6 +5,8 @@ Gemini's answers, so labels can't be anchored to either model. Uses the
 exact definitions Jev is asked about. Saves after every label and resumes
 where you left off; quit any time with q.
 
+Labels go to eval/data/labels-<snapshot>.json, one file per snapshot.
+
 Usage: python -m eval.label [--snapshot eval/data/snapshot-....json] [--relabel AAPL]
 """
 
@@ -13,7 +15,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from eval.compare import LABELS_PATH, latest_snapshot
+from eval.compare import labels_path, latest_snapshot
 from tools.jev_screen import QUESTIONS, SENTIMENT_CRITERIA
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,21 +24,17 @@ SENTIMENT_KEYS = {"u": "bullish", "d": "bearish", "n": "neutral"}
 
 
 def load_labels(snapshot_name: str) -> dict:
-    if LABELS_PATH.exists():
-        data = json.loads(LABELS_PATH.read_text())
-        if data.get("snapshot") != snapshot_name:
-            raise SystemExit(
-                f"{LABELS_PATH.relative_to(ROOT)} holds labels for {data.get('snapshot')}, not "
-                f"{snapshot_name}. Pass --snapshot {data.get('snapshot')} to keep labeling it, "
-                "or move the file aside to start a new set."
-            )
-        return data
+    path = labels_path(snapshot_name)
+    if path.exists():
+        return json.loads(path.read_text())
     return {"snapshot": snapshot_name, "labels": {}}
 
 
-def save_labels(data: dict) -> None:
-    LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LABELS_PATH.write_text(json.dumps(data, indent=2))
+def save_labels(data: dict) -> Path:
+    path = labels_path(data["snapshot"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2))
+    return path
 
 
 def ask(prompt: str, valid: set[str]) -> str:
@@ -74,9 +72,17 @@ def main() -> None:
 
     items = [it for it in snapshot["items"] if it["quote"]["success"] and it["news"]["success"]]
     if args.relabel:
+        # Keep the old label until a new one is entered, so quitting or
+        # skipping leaves it in place.
         items = [it for it in items if it["ticker"] == args.relabel.upper()]
-        labels.pop(args.relabel.upper(), None)
-    todo = [it for it in items if it["ticker"] not in labels]
+        if not items:
+            raise SystemExit(f"{args.relabel.upper()} is not in {snapshot_path.name}.")
+        old = labels.get(items[0]["ticker"])
+        if old:
+            print(f"Current label: {old['sentiment']}, material event: {'yes' if old['material_event'] else 'no'}")
+        todo = items
+    else:
+        todo = [it for it in items if it["ticker"] not in labels]
 
     print(f"Snapshot {snapshot_path.name}: {len(labels)} labeled, {len(todo)} to go.")
     print("\nSentiment - the overall tone of the company's recent news coverage:")
@@ -87,7 +93,7 @@ def main() -> None:
     print("\nAt any prompt: s = skip this ticker, q = save and quit.")
 
     for i, item in enumerate(todo, 1):
-        show(item, f"[{len(labels) + 1}/{len(items)}]")
+        show(item, "[relabel]" if args.relabel else f"[{len(labels) + 1}/{len(items)}]")
 
         sentiment = ask("\nSentiment (u/d/n, s, q): ", set(SENTIMENT_KEYS) | {"s", "q"})
         if sentiment == "q":
@@ -107,8 +113,8 @@ def main() -> None:
         }
         save_labels(data)
 
-    save_labels(data)
-    print(f"\nSaved {len(labels)} labels to {LABELS_PATH}.")
+    path = save_labels(data)
+    print(f"\nSaved {len(labels)} labels to {path.relative_to(ROOT)}.")
 
 
 if __name__ == "__main__":

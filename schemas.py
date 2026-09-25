@@ -57,8 +57,77 @@ class SentimentAssessmentError(BaseModel):
     error: str
 
 
+class Usage(BaseModel):
+    """Token counts and cost for one or more model calls.
+
+    cost_usd is exact for Jev (reported per call by Vercel AI Gateway) and
+    an estimate for Gemini (token counts x list price, see pricing.py).
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    cost_is_estimate: bool = False
+    # What was actually charged - 0 while Vercel's free credits cover Jev.
+    # cost_usd is the list price, which is what cost comparisons use.
+    billed_cost_usd: Optional[float] = None
+
+
 class ResearchBrief(BaseModel):
     ticker: str
     research: dict
     sentiment: dict
     brief_markdown: str
+    usage: Optional[Usage] = None
+
+
+class ScreenResult(BaseModel):
+    """Jev's screening answers for one ticker."""
+
+    success: bool = True
+    ticker: str
+    sentiment: Literal["bullish", "bearish", "neutral"]
+    sentiment_probabilities: dict[str, float] = {}
+    sentiment_confidence: float
+    material_event: float
+    needs_analysis: float
+    model: str
+    latency_ms: float
+    usage: Usage
+
+
+class ScreenError(BaseModel):
+    success: bool = False
+    ticker: str
+    error: str
+
+
+class Decision(BaseModel):
+    escalate: bool
+    reasons: list[str] = []
+
+
+class TickerScanResult(BaseModel):
+    ticker: str
+    pct_change: Optional[float] = None
+    headline_count: int = 0
+    screen: Optional[ScreenResult] = None
+    screen_error: Optional[str] = None
+    decision: Decision
+    brief: Optional[ResearchBrief] = None
+    brief_error: Optional[str] = None
+
+
+class ScanReport(BaseModel):
+    started_at: str
+    finished_at: str
+    universe: str
+    tickers_scanned: int
+    tickers_escalated: int
+    escalation_rate: float
+    jev_model: Optional[str] = None
+    jev_cost_usd: float
+    gemini_cost_usd_estimate: float
+    jev_latency_p50_ms: Optional[float] = None
+    jev_latency_p95_ms: Optional[float] = None
+    results: list[TickerScanResult]

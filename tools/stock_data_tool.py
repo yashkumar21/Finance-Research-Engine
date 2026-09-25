@@ -94,6 +94,62 @@ def resolve_ticker(query: str) -> str:
         return query
 
 
+def get_quote_snapshot(ticker: str) -> dict:
+    """Fetch just the latest price and today's % change for a ticker.
+
+    A lighter sibling of get_stock_data for the screener: a single /quote
+    call (no /stock/metric, no company-name search), since a nightly scan of
+    hundreds of tickers is bound by Finnhub's 60 calls/min free-tier limit.
+
+    Returns:
+        On success: {"success": True, "ticker", "price", "pct_change"}, where
+        pct_change is today's move in percent (e.g. -2.31) or None.
+        On failure: {"success": False, "ticker", "error"}.
+    """
+    ticker = (ticker or "").strip().upper()
+    if not ticker:
+        return {"success": False, "ticker": ticker, "error": "Ticker symbol must not be empty."}
+
+    api_key = os.environ.get("FINNHUB_API_KEY")
+    if not api_key:
+        return {"success": False, "ticker": ticker, "error": "FINNHUB_API_KEY is not set."}
+
+    try:
+        quote = _fetch_quote(ticker, api_key)
+        if not quote.get("t"):
+            return {
+                "success": False,
+                "ticker": ticker,
+                "error": f"No price data found for ticker '{ticker}'. It may be invalid or delisted.",
+            }
+        pct_change = quote.get("dp")
+        return {
+            "success": True,
+            "ticker": ticker,
+            "price": float(quote["c"]),
+            "pct_change": float(pct_change) if isinstance(pct_change, (int, float)) else None,
+        }
+    except requests.exceptions.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else None
+        if status == 429:
+            return {
+                "success": False,
+                "ticker": ticker,
+                "error": "Finnhub API rate limit exceeded. Please try again shortly.",
+            }
+        return {
+            "success": False,
+            "ticker": ticker,
+            "error": f"Finnhub API error ({status}) while fetching a quote for '{ticker}'.",
+        }
+    except requests.exceptions.RequestException as exc:
+        return {
+            "success": False,
+            "ticker": ticker,
+            "error": f"Network error while fetching a quote for '{ticker}': {exc}",
+        }
+
+
 def get_stock_data(ticker: str) -> dict:
     """Fetch quantitative stock data for a given ticker symbol or company name.
 

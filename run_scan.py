@@ -12,17 +12,13 @@ Usage:
 import argparse
 import asyncio
 import sys
-from datetime import datetime, timezone
-from pathlib import Path
 
 from dotenv import load_dotenv
 
 from schemas import TickerScanResult
-from screener.scan import load_universe, run_scan
+from screener.scan import ROOT, load_universe, run_scan, save_report
 
 load_dotenv()
-
-RUNS_DIR = Path(__file__).resolve().parent / "runs"
 
 
 def _print_progress(done: int, total: int, result: TickerScanResult) -> None:
@@ -64,10 +60,7 @@ async def main() -> None:
         on_result=_print_progress,
     )
 
-    RUNS_DIR.mkdir(exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
-    path = RUNS_DIR / f"scan-{stamp}.json"
-    path.write_text(report.model_dump_json(indent=2))
+    path = save_report(report)
 
     failed = sum(1 for r in report.results if not r.screen)
     brief_errors = [r for r in report.results if r.brief_error]
@@ -81,7 +74,7 @@ async def main() -> None:
         f"Jev ${report.jev_cost_usd:.4f} exact, Gemini ~${report.gemini_cost_usd_estimate:.4f} estimated, "
         f"Jev latency p50 {report.jev_latency_p50_ms} ms / p95 {report.jev_latency_p95_ms} ms"
     )
-    print(f"Wrote {path.relative_to(RUNS_DIR.parent)}")
+    print(f"Wrote {path.relative_to(ROOT)}")
     if report.tickers_scanned and failed == report.tickers_scanned:
         sys.exit(1)
 

@@ -21,7 +21,9 @@ from tools.news_tool import get_company_news
 from tools.rate_limit import TokenBucket
 from tools.stock_data_tool import get_quote_snapshot
 
-UNIVERSES_DIR = Path(__file__).resolve().parent.parent / "data" / "universes"
+ROOT = Path(__file__).resolve().parent.parent
+UNIVERSES_DIR = ROOT / "data" / "universes"
+RUNS_DIR = ROOT / "runs"
 
 # /quote, plus the news tool's /stock/profile2 and /company-news.
 FINNHUB_CALLS_PER_TICKER = 3
@@ -42,6 +44,20 @@ def load_universe(name: str) -> list[str]:
     """Tickers from data/universes/<name>.txt, skipping blanks and # comments."""
     lines = (UNIVERSES_DIR / f"{name}.txt").read_text().splitlines()
     return [line.strip().upper() for line in lines if line.strip() and not line.startswith("#")]
+
+
+def save_report(report: ScanReport) -> Path:
+    """Write report to runs/scan-<timestamp>.json and return the path."""
+    RUNS_DIR.mkdir(exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+    path = RUNS_DIR / f"scan-{stamp}.json"
+    path.write_text(report.model_dump_json(indent=2))
+    return path
+
+
+def list_reports() -> list[Path]:
+    """Saved scan reports, newest first."""
+    return sorted(RUNS_DIR.glob("scan-*.json"), reverse=True)
 
 
 async def _screen_one(ticker: str, finnhub: TokenBucket, config: PolicyConfig) -> TickerScanResult:

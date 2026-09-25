@@ -15,25 +15,19 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from screener.scan import load_universe
 from tools.news_tool import get_company_news
 from tools.stock_data_tool import get_quote_snapshot
 
 load_dotenv()
 
 ROOT = Path(__file__).resolve().parent.parent
-UNIVERSES_DIR = ROOT / "data" / "universes"
 SNAPSHOT_DIR = ROOT / "eval" / "data"
 
 # One quote call + two news calls (profile2, company-news) per ticker, paced
 # to stay under Finnhub's 60 calls/min free tier with some headroom.
 FINNHUB_CALLS_PER_TICKER = 3
 SECONDS_PER_TICKER = FINNHUB_CALLS_PER_TICKER * 60 / 55
-
-
-def load_universe(name: str) -> list[str]:
-    path = UNIVERSES_DIR / f"{name}.txt"
-    lines = path.read_text().splitlines()
-    return [line.strip().upper() for line in lines if line.strip() and not line.startswith("#")]
 
 
 def build_snapshot(tickers: list[str], universe: str) -> dict:

@@ -57,6 +57,11 @@ cp .env.example .env   # then fill in GOOGLE_API_KEY (https://aistudio.google.co
 - `agents/analyst_agent.py` — synthesis-only Analyst Agent; combines both agents' JSON into the final markdown brief.
 - `agents/orchestrator.py` — wires Research + Sentiment (`ParallelAgent`) into the Analyst step (`SequentialAgent`) and runs the pipeline end-to-end.
 - `run_research_agent.py`, `run_orchestrator.py` — manual CLIs, e.g. `python run_orchestrator.py AAPL`.
+- `tools/jev_screen.py` — `screen_ticker`, one Jev call answering sentiment, material event and needs-analysis.
+- `tools/rate_limit.py` — shared token bucket keeping the scanner under Finnhub's rate limit.
+- `screener/policy.py` — deterministic escalation policy; `screener/scan.py` — `run_scan` over a universe.
+- `run_scan.py` — scanner CLI (see [Scanning a universe](#scanning-a-universe)).
+- `eval/` — Jev vs. Gemini eval against hand labels (`build_dataset`, `label`, `compare`, `tune_questions`).
 - `tests/` — pytest suite; real network/live-agent calls, no mocking (aside from a couple of deliberately isolated cases).
 
 ## Running tests
@@ -76,6 +81,62 @@ python run_research_agent.py AAPL
 python run_research_agent.py ZZZZZZINVALID
 python run_orchestrator.py AAPL
 ```
+
+## Scanning a universe
+
+`run_scan.py` screens every ticker in a `data/universes/*.txt` list with Jev, applies the escalation
+policy (`screener/policy.py`), and runs the full Gemini brief for escalated tickers. Each run writes
+`runs/scan-<timestamp>.json` (gitignored). Finnhub's 60 calls/min free tier sets the pace: about 6
+minutes for the S&P 100, 27 for the S&P 500. Reports keep each ticker's headlines, so a past scan can
+be re-screened with reworded Jev questions or labeled as an eval set.
+
+```bash
+python run_scan.py --universe sp100 --limit 10 --no-escalate   # smoke test, Jev only
+python run_scan.py --universe sp500 --no-escalate              # decisions only, ~2.5 cents
+python run_scan.py --universe sp500 --max-briefs 20            # brief the 20 strongest escalations
+```
+
+`--no-escalate` records every decision without running briefs, so a scan costs only Jev calls and can
+be re-scored against a different policy later. Gemini's free tier (15 requests/min per model) fits only
+a few briefs a minute, so cap briefs with `--max-briefs` rather than escalating a whole universe.
+
+### Nightly run (macOS launchd)
+
+US markets close at 16:00 ET, so schedule after that, on nights following a trading day only - a
+weekend scan sees Friday's data again. Save as
+`~/Library/LaunchAgents/com.finance-research-engine.scan.plist`, fixing the two paths:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.finance-research-engine.scan</string>
+  <key>WorkingDirectory</key><string>/path/to/Finance Research Engine</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/Finance Research Engine/.venv/bin/python</string>
+    <string>run_scan.py</string><string>--universe</string><string>sp500</string><string>--no-escalate</string>
+  </array>
+  <!-- Local time, Tue-Sat (launchd weekday 0 = Sunday): 03:00 IST is 17:30 ET the previous
+       day (16:30 while the US is on standard time), so each run follows a Mon-Fri close. -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/tmp/finance-scan.log</string>
+  <key>StandardErrorPath</key><string>/tmp/finance-scan.log</string>
+</dict>
+</plist>
+```
+
+Load it with `launchctl load ~/Library/LaunchAgents/com.finance-research-engine.scan.plist`. launchd
+runs a missed job when the Mac wakes, but not if it was shut down. On Linux, the cron equivalent is
+`0 3 * * 2-6 cd /path/to/repo && .venv/bin/python run_scan.py --universe sp500 --no-escalate`.
 
 ## Notes on model selection
 

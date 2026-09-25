@@ -112,8 +112,12 @@ class Decision(BaseModel):
 
 class TickerScanResult(BaseModel):
     ticker: str
+    price: Optional[float] = None
     pct_change: Optional[float] = None
     headline_count: int = 0
+    # The exact inputs Jev saw, so a scan can be re-screened with reworded
+    # questions or turned into a labeled eval snapshot later.
+    headlines: list[Headline] = []
     screen: Optional[ScreenResult] = None
     screen_error: Optional[str] = None
     decision: Decision
@@ -128,9 +132,17 @@ class ScanReport(BaseModel):
     tickers_scanned: int
     tickers_escalated: int
     escalation_rate: float
+    # False for --no-escalate runs: decisions are recorded, no briefs run.
+    escalation_enabled: bool = True
+    # Escalated tickers can exceed this; the rest are recorded without briefs.
+    max_briefs: Optional[int] = None
+    briefs_generated: int = 0
     jev_model: Optional[str] = None
     jev_cost_usd: float
     gemini_cost_usd_estimate: float
+    # Baseline A from the plan: a full Gemini brief for every scanned ticker,
+    # extrapolated from this run's mean brief cost. None when no brief ran.
+    baseline_all_briefs_cost_usd_estimate: Optional[float] = None
     jev_latency_p50_ms: Optional[float] = None
     jev_latency_p95_ms: Optional[float] = None
     results: list[TickerScanResult]

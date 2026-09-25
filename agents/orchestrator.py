@@ -22,7 +22,8 @@ from google.genai import types
 from agents.analyst_agent import build_analyst_agent
 from agents.research_agent import build_research_agent
 from agents.sentiment_agent import build_sentiment_agent
-from schemas import ResearchBrief
+from pricing import gemini_cost
+from schemas import ResearchBrief, Usage
 from tools.stock_data_tool import resolve_ticker
 
 APP_NAME = "finance_research_engine_orchestrator"
@@ -71,6 +72,9 @@ async def run_research_brief(
     on_event, if given, is called synchronously once per streamed event
     (e.g. to drive live per-agent status in a UI) - purely observational,
     it cannot alter pipeline execution.
+
+    The brief's usage sums token counts across all three agents; its cost is
+    an estimate (tokens x list price, see pricing.py).
     """
     ticker = resolve_ticker(ticker)
     pipeline = build_pipeline()
@@ -86,9 +90,15 @@ async def run_research_brief(
     message = types.Content(role="user", parts=[types.Part(text=f"Research {ticker}")])
 
     final_text = None
+    input_tokens = output_tokens = 0
     async for event in runner.run_async(user_id=user_id, session_id=session.id, new_message=message):
         if on_event:
             on_event(event)
+        usage = event.usage_metadata
+        if usage:
+            input_tokens += usage.prompt_token_count or 0
+            # Thinking tokens are billed as output.
+            output_tokens += (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
         if event.content and event.content.parts:
             for part in event.content.parts:
                 if part.text:
@@ -109,4 +119,10 @@ async def run_research_brief(
         research=research_data,
         sentiment=sentiment_data,
         brief_markdown=final_text,
+        usage=Usage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=gemini_cost(input_tokens, output_tokens),
+            cost_is_estimate=True,
+        ),
     )

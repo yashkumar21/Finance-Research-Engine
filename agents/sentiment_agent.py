@@ -51,19 +51,23 @@ On failure (the tool reported an error):
 }
 """
 
-def build_sentiment_agent(output_key: str | None = None) -> Agent:
+def build_sentiment_agent(output_key: str | None = None, news_tool=get_company_news) -> Agent:
     """Construct a fresh Sentiment Agent instance.
 
     A factory rather than a shared singleton - see build_research_agent's
     docstring for why: ADK forbids attaching the same agent object as a
     sub-agent to more than one parent.
+
+    news_tool lets the eval harness substitute a function that returns
+    cached headlines, so Gemini and Jev judge identical inputs. It must keep
+    the name get_company_news, since the instruction refers to it by name.
     """
     return Agent(
         name="sentiment_agent",
         model="gemini-3.5-flash-lite",
         description="Qualitative news-sentiment agent: bullish/bearish/neutral judgment from recent headlines, with citations.",
         instruction=SENTIMENT_AGENT_INSTRUCTION,
-        tools=[get_company_news],
+        tools=[news_tool],
         output_key=output_key,
     )
 

@@ -18,8 +18,11 @@ load_dotenv()
 
 GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/typesafe"
 JEV_MODEL = "typesafe-ai/jev"
-MAX_RETRIES = 3
-RETRY_BACKOFF_SECONDS = 2.0
+MAX_RETRIES = 4
+RETRY_BACKOFF_SECONDS = 1.0
+# Rate limits plus transient upstream errors - Jev returned frequent 503s in
+# its first weeks of early access.
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 SENTIMENT_CRITERIA = {
     "bullish": "The headlines skew positive for the company",
@@ -41,11 +44,14 @@ QUESTIONS = {
             "regulatory action, or executive change"
         ),
     },
+    # Chosen with eval/tune_questions.py: "would want a full brief" returned
+    # ~0.67 for every ticker; "specific new development" wordings fire for
+    # nearly every large cap. This wording spreads with a sensible base rate.
     "needs_analysis": {
         "type": "noul",
         "instructions": (
-            "A professional equity analyst covering this company would want a full "
-            "research brief on it today"
+            "An analyst who already covers this company would need to update their "
+            "view of it because of these headlines"
         ),
     },
 }
@@ -63,28 +69,38 @@ def build_state(ticker: str, quote: dict, news: dict) -> dict:
     }
 
 
-def _post_with_retry(payload: dict, api_key: str) -> requests.Response:
-    """POST to /systemone, retrying 429s with exponential backoff."""
-    for attempt in range(MAX_RETRIES + 1):
+def _post_with_retry(payload: dict, api_key: str) -> tuple[requests.Response, int, float]:
+    """POST to /systemone, retrying rate limits and transient server errors.
+
+    Returns (response, attempts made, latency in ms of the final attempt) -
+    latency excludes failed attempts and backoff, so it reflects the model's
+    speed rather than upstream availability, which attempts captures.
+    """
+    for attempt in range(1, MAX_RETRIES + 2):
+        started = time.perf_counter()
         resp = requests.post(
             f"{GATEWAY_BASE_URL}/v1/systemone",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
             timeout=30,
         )
-        if resp.status_code != 429 or attempt == MAX_RETRIES:
-            return resp
-        time.sleep(RETRY_BACKOFF_SECONDS * (2**attempt))
-    return resp
+        latency_ms = (time.perf_counter() - started) * 1000
+        if resp.status_code not in RETRYABLE_STATUS_CODES or attempt > MAX_RETRIES:
+            return resp, attempt, latency_ms
+        time.sleep(RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+    return resp, attempt, latency_ms
 
 
-def screen_ticker(ticker: str, quote: dict, news: dict) -> dict:
+def screen_ticker(ticker: str, quote: dict, news: dict, questions: dict = QUESTIONS) -> dict:
     """Screen one ticker with Jev.
 
     Args:
         ticker: The ticker symbol, e.g. "AAPL".
         quote: A get_quote_snapshot result (uses "pct_change").
         news: A get_company_news result (uses "headlines").
+        questions: Override the question set (the eval uses this to test
+            rewordings). Must keep the sentiment, material_event and
+            needs_analysis keys and their types.
 
     Returns:
         On success, a ScreenResult dict: Jev's sentiment choice with its
@@ -104,13 +120,11 @@ def screen_ticker(ticker: str, quote: dict, news: dict) -> dict:
     payload = {
         "model": JEV_MODEL,
         "state": build_state(ticker, quote, news),
-        "questions": QUESTIONS,
+        "questions": questions,
     }
 
     try:
-        started = time.perf_counter()
-        resp = _post_with_retry(payload, api_key)
-        latency_ms = (time.perf_counter() - started) * 1000
+        resp, attempts, latency_ms = _post_with_retry(payload, api_key)
 
         if resp.status_code == 429:
             return {"success": False, "ticker": ticker, "error": "Jev rate limit exceeded after retries."}
@@ -126,7 +140,7 @@ def screen_ticker(ticker: str, quote: dict, news: dict) -> dict:
             return {
                 "success": False,
                 "ticker": ticker,
-                "error": f"Jev API error ({resp.status_code}): {message}",
+                "error": f"Jev API error ({resp.status_code}) after {attempts} attempt(s): {message}",
             }
 
         body = resp.json()
@@ -143,6 +157,7 @@ def screen_ticker(ticker: str, quote: dict, news: dict) -> dict:
             needs_analysis=float(answers["needs_analysis"]["noul"]),
             model=body.get("model", JEV_MODEL),
             latency_ms=round(latency_ms, 1),
+            attempts=attempts,
             usage=Usage(
                 input_tokens=int(usage.get("input_tokens") or 0),
                 output_tokens=int(usage.get("output_tokens") or 0),

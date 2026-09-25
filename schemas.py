@@ -93,6 +93,9 @@ class ScreenResult(BaseModel):
     needs_analysis: float
     model: str
     latency_ms: float
+    # Calls needed to get an answer; >1 means rate limits or transient
+    # upstream errors were retried.
+    attempts: int = 1
     usage: Usage
 
 

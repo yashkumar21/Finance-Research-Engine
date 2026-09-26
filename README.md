@@ -1,15 +1,38 @@
 # Finance Research Engine
 
-Multi-agent financial research system built with Google's Agent Development Kit (ADK) and Gemini.
-An Orchestrator runs a quantitative Research Agent and a qualitative Sentiment Agent in parallel,
-then a synthesis-only Analyst Agent combines both into a markdown research brief. A Streamlit
-frontend sits on top.
+Multi-agent financial research system built with Google's Agent Development Kit (ADK) and Gemini,
+plus a cheap screening layer that makes it practical to run nightly over the whole S&P 500.
+
+- **Research briefs**: an Orchestrator runs a quantitative Research Agent and a qualitative Sentiment
+  Agent in parallel, then a synthesis-only Analyst Agent combines both into a markdown brief.
+- **Nightly scan**: [Jev](https://vercel.com/ai-gateway) (TypeSafe AI's "System 1" decision model)
+  screens every ticker in one cheap call, and a deterministic policy sends only tickers with a likely
+  material event to the full Gemini pipeline.
+- **Evaluation**: Jev vs. Gemini on identical cached headlines, scored against hand labels, with the
+  escalation policy chosen on one labeled set and tested on a held-out one ([Results](#results)).
+- **Streamlit UI**: single-ticker briefs, and a Daily Scan tab for the latest scan report.
 
 ## Architecture
 
+Nightly scan - screen everything cheaply, brief only what matters:
+
 ```mermaid
 flowchart LR
-    U[Streamlit UI] --> O[Orchestrator]
+    N[run_scan.py<br/>nightly, S&P 500] --> F[(Finnhub quote + news<br/>rate-limited 55/min)]
+    F --> J[Jev screen<br/>1 call per ticker]
+    J --> P{Escalation policy<br/>material event ≥ 0.6,<br/>price move ≥ 4%,<br/>or screen failed}
+    P -- ~20% of tickers --> O[Gemini research brief<br/>pipeline below]
+    P -- the rest --> K[Recorded, no brief]
+    O --> R[(runs/scan-*.json)]
+    K --> R
+    R --> D[Streamlit Daily Scan tab]
+```
+
+Research brief pipeline - used for single-ticker requests and escalated tickers:
+
+```mermaid
+flowchart LR
+    U[Streamlit UI / scanner] --> O[Orchestrator]
 
     subgraph Parallel execution
         R[Research Agent]
@@ -33,18 +56,16 @@ JSON outputs are fed into the Analyst Agent via ADK's `SequentialAgent` (fan-in)
 each agent has a single, narrow responsibility and no agent invents data outside its own tool's
 output.
 
-**Currently implemented**: the full pipeline — Finnhub stock data tool + Research Agent, Finnhub news
-tool + Sentiment Agent, and the Orchestrator + Analyst Agent that runs the first two in
-parallel and synthesizes a markdown brief.
-
 ## Setup
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # then fill in GOOGLE_API_KEY (https://aistudio.google.com/apikey)
-                        # and FINNHUB_API_KEY (https://finnhub.io/register, free tier, 60 calls/min)
+cp .env.example .env   # then fill in GOOGLE_API_KEY (https://aistudio.google.com/apikey),
+                        # FINNHUB_API_KEY (https://finnhub.io/register, free tier, 60 calls/min)
+                        # and AI_GATEWAY_API_KEY (https://vercel.com/ai-gateway, for Jev)
+streamlit run app.py
 ```
 
 ## Project layout
@@ -137,6 +158,96 @@ weekend scan sees Friday's data again. Save as
 Load it with `launchctl load ~/Library/LaunchAgents/com.finance-research-engine.scan.plist`. launchd
 runs a missed job when the Mac wakes, but not if it was shut down. On Linux, the cron equivalent is
 `0 3 * * 2-6 cd /path/to/repo && .venv/bin/python run_scan.py --universe sp500 --no-escalate`.
+
+## Results
+
+### Screening: held-out test set
+
+The escalation policy was chosen on one hand-labeled set, committed, and only then evaluated on a
+second set labeled afterwards (100 random S&P 500 tickers outside the S&P 100). The held-out numbers
+are the ones to quote; the development set is shown for comparison.
+
+| | Development set | **Held-out test set** |
+|---|---|---|
+| Tickers (hand-labeled, blind to model output) | 102 (S&P 100) | **100** (rest of S&P 500) |
+| Labeled material events | 7 | **8** |
+| Events escalated (recall) | 7 / 7 | **8 / 8** |
+| Tickers escalated | 26% | **27-30%** |
+| Escalations that were labeled events (precision) | 26% | **27-30%** |
+| Gemini briefs avoided vs. briefing every ticker | 74% | **70-73%** |
+
+Held-out ranges span two Jev runs on the same headlines: the nightly scan's answers (27% escalated,
+0 failures) and a fresh re-screen (`eval/results/compare-2026-09-26T123753Z.md`: 30% escalated, of
+which 4 tickers were Jev errors escalated to be safe). Jev's answers vary slightly between runs.
+
+On the first full S&P 500 scan the policy escalates 108 of 503 tickers (21%), so a nightly run needs
+~108 briefs instead of 503.
+
+The policy that won - `material_event >= 0.6` (plus a 4% price-move rule and escalation on any
+screening failure) - replaced an earlier one that also escalated on Jev's `needs_analysis` answer
+and on low sentiment confidence. On the held-out set the earlier policy caught the same 8 events
+but escalated 60% of tickers.
+
+### Sentiment: Jev vs. Gemini
+
+Both models judged identical cached headlines; accuracy is against the hand labels.
+
+| | Jev | Gemini (Sentiment Agent) |
+|---|---|---|
+| Accuracy, held-out set (100) | 70-72% | not measured* |
+| Accuracy, development set (93 screened) | 73% | 71% |
+| Cost per ticker | $0.0000475 (exact, gateway-reported) | ~$0.0021 (estimated) |
+| Median latency | ~0.6 s | ~3.4 s |
+
+Jev answers sentiment, material event and needs-analysis in one call at ~1/45th the cost of the
+Gemini sentiment step alone.
+
+\* The held-out Gemini run was stopped at 17/100: the free tier was answering at ~1 ticker/minute.
+`python -m eval.compare --snapshot eval/data/snapshot-2026-09-26T054846Z.json` completes it.
+
+### Scale
+
+First S&P 500 scan (Jev only): 503/503 tickers screened, 0 failures, $0.022 of Jev calls, median
+Jev latency 575 ms (p95 1,013 ms), ~28 minutes end to end - bound by Finnhub's free-tier rate limit,
+not the models.
+
+## Evaluation method
+
+- **Cached inputs** (`eval/build_dataset.py`): quotes and headlines are fetched once and saved, so
+  every model and every rerun sees identical inputs. Held-out sets are built from a scan report with a
+  seeded random sample (`--from-scan --sample --exclude-universe`).
+- **Hand labels** (`eval/label.py`): sentiment plus "material event?" per ticker, entered blind - the
+  labeler shows only headlines and the price move, never a model's answer. Labeling rules are in
+  [`eval/LABELING.md`](eval/LABELING.md): a material event is one of six categories (earnings surprise,
+  guidance change, M&A, major litigation, regulatory action, executive change) - the same list Jev is
+  asked about.
+- **Comparison** (`eval/compare.py`): accuracy vs. labels, Jev-Gemini agreement and confusion matrix,
+  escalation recall/precision per policy, a threshold sweep, and per-ticker cost and latency. Reports
+  are in `eval/results/`.
+- **Development/test split**: the policy was picked on the development set and committed
+  (`6042f25`) before the held-out set was labeled (`d0176da`), so the held-out result measures it
+  untuned. Question wordings were tried with `eval/tune_questions.py`.
+
+## Limitations
+
+- **Few positive examples.** 15 labeled material events across both sets; 8/8 on the held-out set is
+  consistent with a true recall well below 100% (>= 63% at 95% confidence, exact binomial; 15/15
+  across both sets gives >= 78%). The event rate will grow with more nightly scans, especially in earnings season.
+- **Low precision.** About 70% of escalations are false alarms. Fine for a screen whose job is to not
+  miss events, but there's room to cut briefs further.
+- **Development labels were revised.** A first labeling pass marked 43 of 102 tickers material; an
+  audit against the written six-category rules cut that to 7 (earnings dates, analyst ratings and
+  routine dividends had been counted). The audit happened after seeing which tickers Jev missed, so the
+  development numbers may flatter Jev - which is why the policy is judged on the held-out set, labeled
+  blind after the policy was fixed.
+- **Single labeler.** All labels are one person's judgement; there's no inter-annotator agreement.
+- **Headlines only.** Jev sees ~7 days of headlines and today's move - no filings, transcripts or prices
+  beyond the quote. Week-old events can re-trigger escalation.
+- **Estimated Gemini cost.** Jev's cost is exact (reported per call by Vercel AI Gateway); Gemini's is
+  token counts x list price (`pricing.py`).
+- **Early-access model.** Jev returned intermittent 5xx errors in its first weeks (retried; failures
+  escalate rather than drop a ticker), and its behaviour may change between versions - every result
+  records the model that produced it.
 
 ## Notes on model selection
 

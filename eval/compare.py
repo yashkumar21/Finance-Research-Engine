@@ -318,6 +318,8 @@ def render_label_section(lm: dict) -> list[str]:
 
 
 def render_markdown(snapshot_path: Path, rows: list[dict], m: dict) -> str:
+    if m.get("gemini_skipped"):
+        return _render_jev_only(snapshot_path, m)
     lines = [
         f"# Jev vs. Gemini sentiment - {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC",
         "",
@@ -391,6 +393,22 @@ def render_markdown(snapshot_path: Path, rows: list[dict], m: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_jev_only(snapshot_path: Path, m: dict) -> str:
+    lines = [
+        f"# Jev screening vs. hand labels - {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC",
+        "",
+        f"Snapshot: `{snapshot_path.name}` - {m['tickers']} tickers (Jev failures: {m['jev_failures']}). "
+        f"Jev model: {', '.join(m['jev_models'])}. Gemini not run (--jev-only).",
+        "",
+        "| Metric | Value |",
+        "|---|---|",
+        f"| Cost per ticker - Jev (exact list price) | ${m['jev_cost_per_ticker_usd'] or 0:.7f} |",
+        f"| Median latency - Jev | {m['jev_latency_ms'].get('median')} ms |",
+    ]
+    lines += render_label_section(m["labels"])
+    return "\n".join(line for line in lines if not line.startswith("| Gemini |")) + "\n"
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--snapshot", type=Path, help="Defaults to the newest eval/data/snapshot-*.json")
@@ -399,6 +417,11 @@ async def main() -> None:
         action="store_true",
         help="Reuse Gemini answers from the newest earlier comparison of the same snapshot "
         "(re-runs Jev only - for iterating on Jev questions without Gemini quota)",
+    )
+    parser.add_argument(
+        "--jev-only",
+        action="store_true",
+        help="Skip Gemini entirely: Jev accuracy and escalation vs. hand labels, no model comparison",
     )
     args = parser.parse_args()
 
@@ -413,7 +436,10 @@ async def main() -> None:
     for i, it in enumerate(items, 1):
         ticker = it["ticker"]
         jev = screen_ticker(ticker, it["quote"], it["news"])
-        gemini = cached_gemini.get(ticker) or await run_gemini_sentiment(ticker, it["news"])
+        if args.jev_only:
+            gemini = {"success": False, "error": "skipped (--jev-only)"}
+        else:
+            gemini = cached_gemini.get(ticker) or await run_gemini_sentiment(ticker, it["news"])
         rows.append({"ticker": ticker, "quote": it["quote"], "news": it["news"], "jev": jev, "gemini": gemini})
         print(
             f"[{i}/{len(items)}] {ticker}: Gemini={gemini.get('sentiment', 'ERR')} "
@@ -421,6 +447,7 @@ async def main() -> None:
         )
 
     metrics = compute_metrics(rows)
+    metrics["gemini_skipped"] = args.jev_only
     metrics["labels"] = label_metrics(rows, load_labels(snapshot_path.name))
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)

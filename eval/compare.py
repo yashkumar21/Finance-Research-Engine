@@ -48,19 +48,18 @@ GEMINI_RETRY_SECONDS = 30
 
 POLICY_VARIANTS = {
     "default": DEFAULT_POLICY,
-    "needs_analysis >= 0.8": PolicyConfig(needs_analysis_threshold=0.8),
-    "no needs_analysis rule": PolicyConfig(needs_analysis_threshold=1.01),
-    "material_event only": PolicyConfig(
-        needs_analysis_threshold=1.01, min_sentiment_confidence=0.0, price_move_threshold_pct=1000
+    "original (+ needs_analysis, low-confidence rules)": PolicyConfig(
+        needs_analysis_threshold=0.6, min_sentiment_confidence=0.5
     ),
+    "material_event only (no price rule)": PolicyConfig(price_move_threshold_pct=1000),
 }
 
-# Thresholds tried by the sweep; 1.01 disables a rule, 0.0 disables the
-# low-confidence fallback. Price-move threshold stays at the default 4%.
+# Thresholds tried by the sweep; None turns a rule off. Price-move threshold
+# stays at the default 4%.
 SWEEP_GRID = {
     "material_event": [0.4, 0.5, 0.6, 0.7],
-    "needs_analysis": [0.6, 0.65, 0.7, 1.01],
-    "min_sentiment_confidence": [0.0, 0.3, 0.4, 0.5],
+    "needs_analysis": [0.6, 0.65, 0.7, None],
+    "min_sentiment_confidence": [None, 0.3, 0.4, 0.5],
 }
 
 
@@ -304,15 +303,15 @@ def render_label_section(lm: dict) -> list[str]:
         "",
         f"## Threshold sweep - lowest escalation rate with recall >= {target:.0%}",
         "",
-        f"{len(sweep)} combinations tried; price-move threshold fixed at 4%. "
-        "needs_analysis 1.01 = rule off; confidence 0.0 = fallback off.",
+        f"{len(sweep)} combinations tried; price-move threshold fixed at 4%. \"off\" = rule not applied.",
         "",
         "| material_event | needs_analysis | min confidence | Escalation rate | Recall | Precision |",
         "|---|---|---|---|---|---|",
     ]
     for s in qualifying:
         lines.append(
-            f"| {s['material_event_threshold']} | {s['needs_analysis_threshold']} | {s['min_sentiment_confidence']} | "
+            f"| {s['material_event_threshold']} | {s['needs_analysis_threshold'] or 'off'} | "
+            f"{s['min_sentiment_confidence'] or 'off'} | "
             f"{_pct(s['rate'])} | {_pct(s['recall'])} | {_pct(s['precision'])} |"
         )
     return lines

@@ -7,6 +7,9 @@ results.
 
 from screener.policy import PolicyConfig, decide
 
+# The original policy, with the optional rules the default turns off.
+ALL_RULES = PolicyConfig(needs_analysis_threshold=0.6, min_sentiment_confidence=0.5)
+
 
 def _screen(material_event=0.1, needs_analysis=0.1, confidence=0.9, sentiment="neutral"):
     return {
@@ -39,8 +42,13 @@ def test_material_event_just_below_threshold_does_not_escalate():
     assert decide(_screen(material_event=0.59), pct_change=0.0).escalate is False
 
 
-def test_needs_analysis_escalates():
-    decision = decide(_screen(needs_analysis=0.8), pct_change=0.0)
+def test_default_ignores_needs_analysis_and_low_confidence():
+    decision = decide(_screen(needs_analysis=0.99, confidence=0.1), pct_change=0.0)
+    assert decision.escalate is False
+
+
+def test_needs_analysis_escalates_when_enabled():
+    decision = decide(_screen(needs_analysis=0.8), pct_change=0.0, config=ALL_RULES)
     assert decision.escalate is True
     assert any("analyst attention" in r for r in decision.reasons)
 
@@ -61,8 +69,8 @@ def test_unknown_price_move_is_ignored():
     assert decide(_screen(), pct_change=None).escalate is False
 
 
-def test_low_confidence_falls_back_to_llm():
-    decision = decide(_screen(confidence=0.49), pct_change=0.0)
+def test_low_confidence_falls_back_to_llm_when_enabled():
+    decision = decide(_screen(confidence=0.49), pct_change=0.0, config=ALL_RULES)
     assert decision.escalate is True
     assert any("unsure" in r for r in decision.reasons)
 
@@ -81,7 +89,9 @@ def test_missing_screen_escalates_and_keeps_price_reason():
 
 
 def test_multiple_triggers_are_all_reported():
-    decision = decide(_screen(material_event=0.9, needs_analysis=0.9, confidence=0.3), pct_change=5.0)
+    decision = decide(
+        _screen(material_event=0.9, needs_analysis=0.9, confidence=0.3), pct_change=5.0, config=ALL_RULES
+    )
     assert decision.escalate is True
     assert len(decision.reasons) == 4
 

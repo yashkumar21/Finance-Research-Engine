@@ -1,0 +1,505 @@
+{
+  "snapshot": "snapshot-2026-09-26T054846Z.json",
+  "labels": {
+    "A": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:06:43.757719+00:00"
+    },
+    "AEE": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:07:28.230599+00:00"
+    },
+    "ALL": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:09:50.598899+00:00"
+    },
+    "AME": {
+      "sentiment": "bullish",
+      "material_event": true,
+      "labeled_at": "2026-09-26T06:10:27.263143+00:00"
+    },
+    "ARE": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:10:44.555425+00:00"
+    },
+    "ARES": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:11:28.786010+00:00"
+    },
+    "AWK": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:11:54.054142+00:00"
+    },
+    "AZO": {
+      "sentiment": "bullish",
+      "material_event": true,
+      "labeled_at": "2026-09-26T06:13:37.345005+00:00"
+    },
+    "BDX": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:15:02.274567+00:00"
+    },
+    "BG": {
+      "sentiment": "bullish",
+      "material_event": true,
+      "labeled_at": "2026-09-26T06:16:10.632389+00:00"
+    },
+    "BIIB": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:18:12.509330+00:00"
+    },
+    "BKR": {
+      "sentiment": "neutral",
+      "material_event": true,
+      "labeled_at": "2026-09-26T06:18:41.588578+00:00"
+    },
+    "BR": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:19:42.938667+00:00"
+    },
+    "BSX": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:20:33.671790+00:00"
+    },
+    "BX": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:21:01.466827+00:00"
+    },
+    "CASY": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:42:23.267380+00:00"
+    },
+    "CEG": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:44:57.996325+00:00"
+    },
+    "CHD": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:45:32.603300+00:00"
+    },
+    "CLX": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:46:05.714948+00:00"
+    },
+    "CME": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:46:47.539665+00:00"
+    },
+    "CMS": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:47:17.597086+00:00"
+    },
+    "D": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:47:50.077810+00:00"
+    },
+    "DAL": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:49:43.778381+00:00"
+    },
+    "DASH": {
+      "sentiment": "neutral",
+      "material_event": true,
+      "labeled_at": "2026-09-26T06:50:20.360808+00:00"
+    },
+    "DD": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:51:44.820225+00:00"
+    },
+    "DLR": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:53:51.101901+00:00"
+    },
+    "DTE": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:54:21.575532+00:00"
+    },
+    "DVN": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:57:11.942169+00:00"
+    },
+    "EL": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:57:53.935105+00:00"
+    },
+    "ELV": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:58:30.308974+00:00"
+    },
+    "EME": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:59:11.146473+00:00"
+    },
+    "ERIE": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T06:59:26.693043+00:00"
+    },
+    "ETR": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:00:30.891372+00:00"
+    },
+    "EVRG": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:00:47.599133+00:00"
+    },
+    "FDXF": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:01:14.005516+00:00"
+    },
+    "FFIV": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:01:41.581387+00:00"
+    },
+    "FICO": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:03:03.290196+00:00"
+    },
+    "FIS": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:04:49.407694+00:00"
+    },
+    "FOX": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:10:27.037658+00:00"
+    },
+    "FOXA": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:19:59.701508+00:00"
+    },
+    "FTNT": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:22:08.618216+00:00"
+    },
+    "GEHC": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:23:21.196258+00:00"
+    },
+    "GEN": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:24:32.045607+00:00"
+    },
+    "GEV": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:26:48.937092+00:00"
+    },
+    "GLW": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:28:55.208084+00:00"
+    },
+    "GPN": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:30:03.987025+00:00"
+    },
+    "GRMN": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:30:24.922910+00:00"
+    },
+    "HPE": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:31:13.297455+00:00"
+    },
+    "HRL": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:31:51.014362+00:00"
+    },
+    "INVH": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:32:56.706577+00:00"
+    },
+    "IVZ": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:33:30.779434+00:00"
+    },
+    "JBL": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:36:08.430885+00:00"
+    },
+    "KKR": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:37:03.568575+00:00"
+    },
+    "LDOS": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:38:11.789734+00:00"
+    },
+    "LII": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:38:47.561844+00:00"
+    },
+    "LITE": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:39:13.089029+00:00"
+    },
+    "LRCX": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:39:59.633093+00:00"
+    },
+    "MGM": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:40:57.142939+00:00"
+    },
+    "MLM": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:41:34.214171+00:00"
+    },
+    "MNST": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T07:42:05.974815+00:00"
+    },
+    "MRNA": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:09:17.227097+00:00"
+    },
+    "MRVL": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:10:15.678298+00:00"
+    },
+    "MSI": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:10:59.313609+00:00"
+    },
+    "NDSN": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:11:34.531765+00:00"
+    },
+    "NI": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:12:04.159804+00:00"
+    },
+    "NOC": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:13:30.336959+00:00"
+    },
+    "NUE": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:14:18.748871+00:00"
+    },
+    "ODFL": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:15:58.427319+00:00"
+    },
+    "ORLY": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:16:48.821044+00:00"
+    },
+    "OXY": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:18:23.808139+00:00"
+    },
+    "PANW": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:19:22.835218+00:00"
+    },
+    "PCAR": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:19:48.262210+00:00"
+    },
+    "PGR": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:21:09.127568+00:00"
+    },
+    "PLD": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:21:46.454620+00:00"
+    },
+    "PODD": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:22:13.289359+00:00"
+    },
+    "PSA": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:23:08.562422+00:00"
+    },
+    "PSX": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:23:34.307227+00:00"
+    },
+    "RDDT": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:24:06.433910+00:00"
+    },
+    "RF": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:25:23.260913+00:00"
+    },
+    "ROK": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T10:26:12.562800+00:00"
+    },
+    "ROL": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:52:56.444213+00:00"
+    },
+    "RSG": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:54:10.338839+00:00"
+    },
+    "SJM": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:54:51.864905+00:00"
+    },
+    "SNDK": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:55:13.532296+00:00"
+    },
+    "SPGI": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:55:28.449261+00:00"
+    },
+    "SW": {
+      "sentiment": "bearish",
+      "material_event": true,
+      "labeled_at": "2026-09-26T11:56:02.357472+00:00"
+    },
+    "TECH": {
+      "sentiment": "neutral",
+      "material_event": true,
+      "labeled_at": "2026-09-26T11:56:26.428004+00:00"
+    },
+    "TFC": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:56:58.114900+00:00"
+    },
+    "TRGP": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:58:02.234888+00:00"
+    },
+    "TSCO": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:58:35.327357+00:00"
+    },
+    "TT": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:59:01.588731+00:00"
+    },
+    "UAL": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:59:12.640191+00:00"
+    },
+    "UDR": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:59:27.915781+00:00"
+    },
+    "VRT": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T11:59:40.494595+00:00"
+    },
+    "VTRS": {
+      "sentiment": "bullish",
+      "material_event": true,
+      "labeled_at": "2026-09-26T12:00:01.347095+00:00"
+    },
+    "WAB": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T12:00:34.454375+00:00"
+    },
+    "WM": {
+      "sentiment": "neutral",
+      "material_event": false,
+      "labeled_at": "2026-09-26T12:01:31.890978+00:00"
+    },
+    "WSM": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T12:01:59.059123+00:00"
+    },
+    "WTW": {
+      "sentiment": "bullish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T12:02:50.931186+00:00"
+    },
+    "ZTS": {
+      "sentiment": "bearish",
+      "material_event": false,
+      "labeled_at": "2026-09-26T12:03:24.539290+00:00"
+    }
+  }
+}

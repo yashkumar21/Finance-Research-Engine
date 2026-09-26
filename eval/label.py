@@ -84,12 +84,14 @@ def main() -> None:
     else:
         todo = [it for it in items if it["ticker"] not in labels]
 
-    print(f"Snapshot {snapshot_path.name}: {len(labels)} labeled, {len(todo)} to go.")
+    if not args.relabel:
+        print(f"Snapshot {snapshot_path.name}: {len(labels)} labeled, {len(todo)} to go.")
     print("\nSentiment - the overall tone of the company's recent news coverage:")
     for key, label in SENTIMENT_KEYS.items():
         print(f"  {key} = {label:8s} {SENTIMENT_CRITERIA[label]}")
     print(f"\nMaterial event - {QUESTIONS['material_event']['instructions']}:")
     print("  y = yes, n = no")
+    print("  Only these six categories count - see eval/LABELING.md for what doesn't.")
     print("\nAt any prompt: s = skip this ticker, q = save and quit.")
 
     for i, item in enumerate(todo, 1):

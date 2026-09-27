@@ -93,3 +93,44 @@ def test_network_failure_returns_structured_error(monkeypatch):
     result = get_company_news("AAPL")
     _assert_structure(result)
     assert result["success"] is False
+
+
+# --- get_relevant_company_news: headlines about the company, not just tagged with it ---
+
+from tools.news_tool import _is_about, _name_patterns, get_relevant_company_news  # noqa: E402
+
+
+def _about(ticker, name, headline, summary=""):
+    return _is_about({"headline": headline, "summary": summary}, _name_patterns(ticker, name))
+
+
+def test_company_name_matches_without_legal_suffix():
+    assert _about("NVDA", "NVIDIA Corp", "3 Reasons Why Nvidia Fits Warren Buffett's Style")
+    assert not _about("NVDA", "NVIDIA Corp", "Tesla Reports Q3 Deliveries in Early October")
+
+
+def test_summary_counts_as_well_as_headline():
+    assert _about("NVDA", "NVIDIA Corp", "Chip stocks rally", summary="Nvidia led the gains.")
+
+
+def test_generic_first_word_needs_the_full_name():
+    assert _about("BAC", "Bank of America Corp", "Bank of America Stock Trades 13% Below Its High")
+    assert not _about("BAC", "Bank of America Corp", "Bank stocks slide on rate fears")
+
+
+def test_short_tickers_only_match_in_ticker_notation():
+    # "ON" and "T" are ordinary words; only "(ON)", "NYSE:T", "$T" count.
+    assert _about("ON", "ON Semiconductor Corp", "ON Semiconductor (ON) Stock Stays Near Fair Value")
+    assert not _about("ON", "Fake Co", "Stocks on the move on Friday")
+    assert _about("T", "AT&T Inc", "Does AT&T's Dividend Reaffirmation Signal Stability?")
+    assert not _about("T", "Fake Co", "T-Mobile adds subscribers")
+
+
+def test_relevant_news_live_nvda():
+    result = get_relevant_company_news("NVDA")
+    _assert_structure(result)
+    assert result["success"] is True
+    # Finnhub may not return summaries through this tool, so allow a
+    # headline that matched on its summary - but most should name Nvidia.
+    about = [h for h in result["headlines"] if "nvidia" in h["headline"].lower() or "NVDA" in h["headline"]]
+    assert len(about) >= len(result["headlines"]) // 2

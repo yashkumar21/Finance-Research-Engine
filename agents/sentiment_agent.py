@@ -2,7 +2,24 @@
 
 from google.adk.agents import Agent
 
-from tools.news_tool import get_company_news
+from tools.news_tool import get_relevant_company_news
+
+
+def get_company_news(ticker: str) -> dict:
+    """Fetch recent news headlines about a company, by stock ticker.
+
+    Returns only headlines that mention the company by name or ticker, from
+    the last 7 days - raw headlines, sources and URLs, with no sentiment
+    analysis. An empty list with a note means no recent coverage of the
+    company itself.
+
+    Args:
+        ticker: The stock ticker symbol to look up, e.g. "AAPL", "MSFT".
+    """
+    # Named get_company_news because the instruction refers to the tool by
+    # that name; filters Finnhub's feed, which mixes in other companies' news.
+    return get_relevant_company_news(ticker)
+
 
 SENTIMENT_AGENT_INSTRUCTION = """\
 You are a qualitative sentiment research agent. You never give price

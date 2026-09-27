@@ -14,7 +14,8 @@ from google.adk.runners import InMemoryRunner
 
 from agents.sentiment_agent import sentiment_agent
 from schemas import SentimentAssessment, SentimentAssessmentError
-from tools.news_tool import get_company_news
+# The agent's tool filters Finnhub's feed to articles about the company.
+from tools.news_tool import get_relevant_company_news as get_company_news
 
 load_dotenv()
 

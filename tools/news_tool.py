@@ -1,6 +1,7 @@
-"""Finnhub-backed news tool for the Sentiment Agent."""
+"""Finnhub-backed news tool for the Sentiment Agent and the scanner."""
 
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -11,6 +12,40 @@ load_dotenv()
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 LOOKBACK_DAYS = 7
 MAX_HEADLINES = 10
+
+# Legal suffixes dropped from Finnhub's company name before matching it in
+# article text ("NVIDIA Corp" -> "nvidia").
+_NAME_SUFFIXES = {
+    "inc", "corp", "corporation", "co", "company", "ltd", "plc", "llc", "lp", "holdings", "holding",
+    "group", "the", "class", "a", "b", "c", "sa", "nv", "ag", "se", "incorporated", "limited",
+}
+# First words too generic to identify a company on their own ("Bank of
+# America" must match in full, not as "bank").
+_GENERIC_FIRST_WORDS = {
+    "bank", "american", "general", "first", "united", "international", "national", "global",
+    "public", "southern", "western", "eastern", "northern", "digital", "capital",
+}
+
+
+def _name_patterns(ticker: str, company_name: str) -> list[re.Pattern]:
+    """Patterns that mean an article is about this company, not just tagged with it."""
+    words = [w for w in re.findall(r"[a-z0-9&']+", company_name.lower()) if w not in _NAME_SUFFIXES]
+    patterns = []
+    if words:
+        patterns.append(re.compile(r"\b" + r"\s+".join(map(re.escape, words)) + r"\b", re.IGNORECASE))
+        if len(words) > 1 and len(words[0]) >= 5 and words[0] not in _GENERIC_FIRST_WORDS:
+            patterns.append(re.compile(r"\b" + re.escape(words[0]) + r"\b", re.IGNORECASE))
+    # Tickers like A, T or ON are ordinary words, so short ones only count in
+    # ticker notation: "(T)", "NYSE:T", "$T".
+    if len(ticker) >= 3:
+        patterns.append(re.compile(r"\b" + re.escape(ticker) + r"\b"))
+    patterns.append(re.compile(r"(\(|:|\$)" + re.escape(ticker) + r"\b"))
+    return patterns
+
+
+def _is_about(article: dict, patterns: list[re.Pattern]) -> bool:
+    text = f"{article.get('headline', '')} {article.get('summary', '')}"
+    return any(p.search(text) for p in patterns)
 
 
 def get_company_news(ticker: str) -> dict:
@@ -40,6 +75,25 @@ def get_company_news(ticker: str) -> dict:
             ticker (str): the ticker symbol, uppercased
             error (str): a human-readable description of what went wrong
     """
+    return _fetch_news(ticker, relevant_only=False)
+
+
+def get_relevant_company_news(ticker: str) -> dict:
+    """get_company_news, keeping only articles that mention the company.
+
+    Finnhub's company-news feed also returns market roundups and other
+    companies' stories tagged with the ticker (for NVDA: Tesla deliveries,
+    Medtronic's dividend). This keeps articles whose headline or summary
+    names the company or its ticker, then takes the most recent
+    MAX_HEADLINES. If none qualify, headlines is empty with a note saying so.
+
+    Used by the research brief. The scanner deliberately keeps the
+    unfiltered get_company_news: its Jev policy was evaluated on that input.
+    """
+    return _fetch_news(ticker, relevant_only=True)
+
+
+def _fetch_news(ticker: str, relevant_only: bool) -> dict:
     ticker = (ticker or "").strip().upper()
     if not ticker:
         return {"success": False, "ticker": ticker, "error": "Ticker symbol must not be empty."}
@@ -79,6 +133,10 @@ def get_company_news(ticker: str) -> dict:
         )
         news_resp.raise_for_status()
         articles = news_resp.json() or []
+        fetched = len(articles)
+        if relevant_only:
+            patterns = _name_patterns(ticker, profile.get("name") or "")
+            articles = [a for a in articles if _is_about(a, patterns)]
 
         headlines = []
         for article in articles:
@@ -102,7 +160,12 @@ def get_company_news(ticker: str) -> dict:
         headlines = headlines[:MAX_HEADLINES]
 
         result = {"success": True, "ticker": ticker, "headlines": headlines}
-        if not headlines:
+        if not headlines and relevant_only and fetched:
+            result["note"] = (
+                f"Finnhub returned {fetched} articles for '{ticker}' in the last {LOOKBACK_DAYS} days, "
+                "but none mention the company by name or ticker."
+            )
+        elif not headlines:
             result["note"] = (
                 f"No recent news coverage found for '{ticker}' in the last {LOOKBACK_DAYS} days."
             )

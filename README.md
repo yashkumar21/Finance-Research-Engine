@@ -149,14 +149,29 @@ weekend scan sees Friday's data again. Save as
     <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
     <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
   </array>
-  <key>StandardOutPath</key><string>/tmp/finance-scan.log</string>
-  <key>StandardErrorPath</key><string>/tmp/finance-scan.log</string>
+  <key>StandardOutPath</key><string>/Users/you/Library/Logs/finance-research-engine-scan.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/Library/Logs/finance-research-engine-scan.log</string>
 </dict>
 </plist>
 ```
 
-Load it with `launchctl load ~/Library/LaunchAgents/com.finance-research-engine.scan.plist`. launchd
-runs a missed job when the Mac wakes, but not if it was shut down. On Linux, the cron equivalent is
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.finance-research-engine.scan.plist   # install
+launchctl kickstart gui/$(id -u)/com.finance-research-engine.scan                                # run now
+tail -f ~/Library/Logs/finance-research-engine-scan.log                                         # watch
+launchctl bootout gui/$(id -u)/com.finance-research-engine.scan                                  # uninstall
+```
+
+- API keys come from the repo's `.env` (`run_scan.py` loads it), so none go in the plist.
+- launchd runs a missed job when the Mac wakes, but not if it was shut down. To wake it for the run,
+  `sudo pmset repeat wakeorpoweron TWRFS 02:55:00`.
+- Keeping the repo in `~/Desktop` or `~/Documents` can trip macOS privacy protection for background
+  jobs ("Operation not permitted"). Test once with a small `--limit` job; if blocked, grant the Python
+  binary Full Disk Access or move the repo elsewhere.
+- If Jev rejects the key or the account is out of credits, the run stops with exit code 2 and writes
+  no report, so the log shows the reason instead of 503 failed tickers.
+
+On Linux, the cron equivalent is
 `0 3 * * 2-6 cd /path/to/repo && .venv/bin/python run_scan.py --universe sp500 --no-escalate`.
 
 ## Results

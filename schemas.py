@@ -140,6 +140,9 @@ class ScanReport(BaseModel):
     briefs_generated: int = 0
     jev_model: Optional[str] = None
     jev_cost_usd: float
+    # True when the provider reported no per-call cost and it was estimated
+    # from tokens x list price (pricing.jev_cost).
+    jev_cost_is_estimate: bool = False
     gemini_cost_usd_estimate: float
     # Baseline A from the plan: a full Gemini brief for every scanned ticker,
     # extrapolated from this run's mean brief cost. None when no brief ran.

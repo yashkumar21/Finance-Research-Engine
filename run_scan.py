@@ -71,7 +71,7 @@ async def main() -> None:
         + (f" ({len(brief_errors)} failed)" if brief_errors else "")
     )
     print(
-        f"Jev ${report.jev_cost_usd:.4f} exact, Gemini ~${report.gemini_cost_usd_estimate:.4f} estimated, "
+        f"Jev ${report.jev_cost_usd:.4f} {'estimated' if report.jev_cost_is_estimate else 'exact'}, Gemini ~${report.gemini_cost_usd_estimate:.4f} estimated, "
         f"Jev latency p50 {report.jev_latency_p50_ms} ms / p95 {report.jev_latency_p95_ms} ms"
     )
     print(f"Wrote {path.relative_to(ROOT)}")

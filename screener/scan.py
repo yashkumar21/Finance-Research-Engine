@@ -181,6 +181,7 @@ async def run_scan(
         briefs_generated=sum(1 for r in results if r.brief),
         jev_model=next((s.model for s in screens), None),
         jev_cost_usd=sum(s.usage.cost_usd for s in screens),
+        jev_cost_is_estimate=any(s.usage.cost_is_estimate for s in screens),
         gemini_cost_usd_estimate=sum(brief_costs),
         baseline_all_briefs_cost_usd_estimate=(
             statistics.mean(brief_costs) * len(results) if brief_costs else None

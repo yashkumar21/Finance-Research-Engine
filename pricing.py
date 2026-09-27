@@ -19,9 +19,9 @@ def gemini_cost(input_tokens: int, output_tokens: int) -> float:
     ) / 1_000_000
 
 
-# typesafe/jev-1.13.0 on Requesty, USD per 1M input tokens; output is free.
-# https://www.requesty.ai/model/typesafe/jev as of 2026-09-27.
-JEV_INPUT_PER_M = 0.04
+# jev-1.13.0, USD per 1M input tokens ($42 per billion); output is free.
+# https://docs.typesafe.ai/models as of 2026-09-27.
+JEV_INPUT_PER_M = 0.042
 
 
 def jev_cost(input_tokens: int) -> float:

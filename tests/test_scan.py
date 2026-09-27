@@ -1,7 +1,7 @@
 """Tests for screener.scan.run_scan.
 
 Real-network, matching the repo's no-mocking convention: Finnhub for data and
-Jev for screening. Skipped without FINNHUB_API_KEY and REQUESTY_API_KEY.
+Jev for screening. Skipped without FINNHUB_API_KEY and TYPESAFE_API_KEY.
 Escalation stays off so no Gemini brief runs.
 """
 
@@ -16,8 +16,8 @@ from screener.scan import load_universe, run_scan
 load_dotenv()
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("FINNHUB_API_KEY") and os.environ.get("REQUESTY_API_KEY")),
-    reason="FINNHUB_API_KEY and REQUESTY_API_KEY are required",
+    not (os.environ.get("FINNHUB_API_KEY") and os.environ.get("TYPESAFE_API_KEY")),
+    reason="FINNHUB_API_KEY and TYPESAFE_API_KEY are required",
 )
 
 

@@ -257,12 +257,17 @@ def compute_metrics(rows: list[dict]) -> dict:
         "jev_material_event": _summary([r["jev"]["material_event"] for r in jev_ok]),
         "jev_needs_analysis": _summary([r["jev"]["needs_analysis"] for r in jev_ok]),
         "jev_cost_per_ticker_usd": statistics.mean(jev_cost) if jev_cost else None,
+        "jev_cost_is_estimate": any(r["jev"]["usage"].get("cost_is_estimate") for r in jev_ok),
         "gemini_cost_per_ticker_usd": statistics.mean(gem_cost) if gem_cost else None,
         "jev_latency_ms": _summary([r["jev"]["latency_ms"] for r in jev_ok]),
         "gemini_latency_ms": _summary([r["gemini"]["latency_ms"] for r in gem_ok]),
         "escalation_by_policy": escalation,
         "jev_models": sorted({r["jev"]["model"] for r in jev_ok}),
     }
+
+
+def _jev_cost_kind(m: dict) -> str:
+    return "estimated, tokens x list price" if m.get("jev_cost_is_estimate") else "exact, provider-reported"
 
 
 def _pct(value: float | None) -> str:
@@ -335,7 +340,7 @@ def render_markdown(snapshot_path: Path, rows: list[dict], m: dict) -> str:
     if m["jev_cost_per_ticker_usd"] and m["gemini_cost_per_ticker_usd"]:
         ratio = m["gemini_cost_per_ticker_usd"] / m["jev_cost_per_ticker_usd"]
         lines += [
-            f"| Cost per ticker - Jev (exact list price) | ${m['jev_cost_per_ticker_usd']:.7f} |",
+            f"| Cost per ticker - Jev ({_jev_cost_kind(m)}) | ${m['jev_cost_per_ticker_usd']:.7f} |",
             f"| Cost per ticker - Gemini sentiment (estimated) | ${m['gemini_cost_per_ticker_usd']:.7f} |",
             f"| Gemini / Jev cost ratio (sentiment step only) | {ratio:.1f}x |",
         ]
@@ -402,7 +407,7 @@ def _render_jev_only(snapshot_path: Path, m: dict) -> str:
         "",
         "| Metric | Value |",
         "|---|---|",
-        f"| Cost per ticker - Jev (exact list price) | ${m['jev_cost_per_ticker_usd'] or 0:.7f} |",
+        f"| Cost per ticker - Jev ({_jev_cost_kind(m)}) | ${m['jev_cost_per_ticker_usd'] or 0:.7f} |",
         f"| Median latency - Jev | {m['jev_latency_ms'].get('median')} ms |",
     ]
     lines += render_label_section(m["labels"])

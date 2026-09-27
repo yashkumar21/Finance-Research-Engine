@@ -5,7 +5,7 @@ plus a cheap screening layer that makes it practical to run nightly over the who
 
 - **Research briefs**: an Orchestrator runs a quantitative Research Agent and a qualitative Sentiment
   Agent in parallel, then a synthesis-only Analyst Agent combines both into a markdown brief.
-- **Nightly scan**: [Jev](https://www.requesty.ai/model/typesafe/jev) (TypeSafe AI's "System 1" decision model)
+- **Nightly scan**: [Jev](https://docs.typesafe.ai/models) (TypeSafe AI's "System 1" decision model)
   screens every ticker in one cheap call, and a deterministic policy sends only tickers with a likely
   material event to the full Gemini pipeline.
 - **Evaluation**: Jev vs. Gemini on identical cached headlines, scored against hand labels, with the
@@ -64,7 +64,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # then fill in GOOGLE_API_KEY (https://aistudio.google.com/apikey),
                         # FINNHUB_API_KEY (https://finnhub.io/register, free tier, 60 calls/min)
-                        # and REQUESTY_API_KEY (https://app.requesty.ai/api-keys, for Jev)
+                        # and TYPESAFE_API_KEY (https://docs.typesafe.ai, for Jev)
 streamlit run app.py
 ```
 
@@ -162,11 +162,14 @@ runs a missed job when the Mac wakes, but not if it was shut down. On Linux, the
 ## Results
 
 > **Provider change.** The results below were first measured with Jev served through Vercel AI Gateway
-> (`typesafe-ai/jev`, through 2026-09-26). Vercel then restricted Jev to paid credits, and the code now
-> calls `typesafe/jev-1.13.0` through Requesty with the same questions. Re-running the locked policy on
-> the same held-out labels there gave the same result: 8/8 events at 28% escalation, 29% precision,
+> (`typesafe-ai/jev`, through 2026-09-26). Vercel then restricted Jev to paid credits. Re-running the
+> locked policy on the same held-out labels with `jev-1.13.0` through Requesty gave the same result: 8/8 events at 28% escalation, 29% precision,
 > 70% sentiment accuracy, 0 failures, $0.0041 for all 100 tickers
-> (`eval/results/compare-2026-09-27T070245Z.md`).
+> (`eval/results/compare-2026-09-27T070245Z.md`). The code now calls the same pinned model through
+> TypeSafe's own API (`api.typesafe.ai/v1/systemone`), where it gave 8/8 at 26% escalation, 73%
+> sentiment accuracy, 0 failures and 414 ms median latency
+> (`eval/results/compare-2026-09-27T114225Z.md`). TypeSafe reports token counts but no per-call cost,
+> so Jev cost is now tokens x list price ($0.042/M), labelled as an estimate.
 
 ### Screening: held-out test set
 
@@ -179,14 +182,15 @@ are the ones to quote; the development set is shown for comparison.
 | Tickers (hand-labeled, blind to model output) | 102 (S&P 100) | **100** (rest of S&P 500) |
 | Labeled material events | 7 | **8** |
 | Events escalated (recall) | 7 / 7 | **8 / 8** |
-| Tickers escalated | 26% | **27-30%** |
-| Escalations that were labeled events (precision) | 26% | **27-30%** |
-| Gemini briefs avoided vs. briefing every ticker | 74% | **70-73%** |
+| Tickers escalated | 26% | **26-30%** |
+| Escalations that were labeled events (precision) | 26% | **27-31%** |
+| Gemini briefs avoided vs. briefing every ticker | 74% | **70-74%** |
 
-Held-out ranges span three Jev runs on the same headlines: the nightly scan's answers (27% escalated,
+Held-out ranges span four Jev runs on the same headlines: the nightly scan's answers (27% escalated,
 0 failures), a fresh re-screen (`eval/results/compare-2026-09-26T123753Z.md`: 30% escalated, of
-which 4 tickers were Jev errors escalated to be safe), and a re-run through Requesty (28%, 0 failures).
-Jev's answers vary slightly between runs.
+which 4 tickers were Jev errors escalated to be safe), a re-run through Requesty (28%, 0 failures) and
+one through TypeSafe's own API (`eval/results/compare-2026-09-27T114225Z.md`: 26%, 0 failures). Every
+run caught all 8 events; Jev's answers vary slightly between runs.
 
 On the first full S&P 500 scan the policy escalates 108 of 503 tickers (21%), so a nightly run needs
 ~108 briefs instead of 503.
@@ -202,7 +206,7 @@ Both models judged identical cached headlines; accuracy is against the hand labe
 
 | | Jev | Gemini (Sentiment Agent) |
 |---|---|---|
-| Accuracy, held-out set (100) | 70-72% | not measured* |
+| Accuracy, held-out set (100) | 70-73% | not measured* |
 | Accuracy, development set (93 screened) | 73% | 71% |
 | Cost per ticker | $0.0000475 (exact, provider-reported) | ~$0.0021 (estimated) |
 | Median latency | ~0.6 s | ~3.4 s |
@@ -251,8 +255,11 @@ not the models.
 - **Single labeler.** All labels are one person's judgement; there's no inter-annotator agreement.
 - **Headlines only.** Jev sees ~7 days of headlines and today's move - no filings, transcripts or prices
   beyond the quote. Week-old events can re-trigger escalation.
-- **Estimated Gemini cost.** Jev's cost is exact (reported per call by the provider); Gemini's is
-  token counts x list price (`pricing.py`).
+- **Estimated costs.** Gemini's cost is token counts x list price (`pricing.py`). Jev's was exact on
+  Vercel and Requesty, which report cost per call; TypeSafe's API reports only token counts, so it is
+  now estimated the same way (exact tokens, $0.042/M list price).
+- **Paid model.** Jev now needs paid credits on every provider (~$0.04 per 100 tickers screened), so
+  running the scanner or the eval needs your own `TYPESAFE_API_KEY` with credits.
 - **Early-access model.** Jev returned intermittent 5xx errors in its first weeks (retried; failures
   escalate rather than drop a ticker), and its behaviour may change between versions - every result
   records the model that produced it.

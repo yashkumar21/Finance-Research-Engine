@@ -37,7 +37,7 @@ def _resolve_secret(key: str):
 
 # Must happen before importing agents.orchestrator, so the tools/agents
 # (which read these via os.environ / their own load_dotenv()) see them.
-for _key in ("GOOGLE_API_KEY", "FINNHUB_API_KEY", "REQUESTY_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI"):
+for _key in ("GOOGLE_API_KEY", "FINNHUB_API_KEY", "TYPESAFE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI"):
     _value = _resolve_secret(_key)
     if _value:
         os.environ[_key] = _value
@@ -114,7 +114,7 @@ def _render_report(report: ScanReport, reports: list[Path]) -> None:
     cols[0].metric("Tickers scanned", report.tickers_scanned)
     cols[1].metric("Escalated", f"{report.escalation_rate:.0%}", help=f"{report.tickers_escalated} tickers")
     cols[2].metric(
-        "Jev cost (exact)", _usd(report.jev_cost_usd),
+        f"Jev cost ({'estimated' if report.jev_cost_is_estimate else 'exact'})", _usd(report.jev_cost_usd),
         help=f"Median latency {report.jev_latency_p50_ms} ms, p95 {report.jev_latency_p95_ms} ms",
     )
 
@@ -283,7 +283,7 @@ with tab_brief:
 
 
 with tab_scan:
-    missing_scan_keys = [k for k in ("REQUESTY_API_KEY", "FINNHUB_API_KEY") if not os.environ.get(k)]
+    missing_scan_keys = [k for k in ("TYPESAFE_API_KEY", "FINNHUB_API_KEY") if not os.environ.get(k)]
     if missing_scan_keys:
         st.warning(f"Live scans need {', '.join(missing_scan_keys)}.")
     _render_live_scan()

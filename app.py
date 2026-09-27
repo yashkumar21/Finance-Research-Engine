@@ -48,6 +48,7 @@ import statistics  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import time  # noqa: E402
+from datetime import datetime  # noqa: E402
 
 from agents.orchestrator import run_research_brief  # noqa: E402
 from schemas import ScanReport  # noqa: E402
@@ -62,6 +63,8 @@ LIVE_SCAN_MAX_BRIEFS = 3
 # Typical cost and time of a full Gemini brief, for the button label: ~$0.004-0.008
 # estimated from token counts in test runs, 12-26 s end to end.
 BRIEF_COST_HINT = "~20 s, ~$0.008"
+# One-click examples so a first-time visitor doesn't have to think of a ticker.
+EXAMPLE_TICKERS = ["AAPL", "MSFT", "NVDA", "TSLA"]
 
 # Held-out evaluation of the current policy, from the committed reports in
 # eval/results/ (the JSON results are gitignored, so a deployed app can't
@@ -371,6 +374,41 @@ def _render_screen(result: dict) -> None:
         )
 
 
+def _latest_index_report() -> ScanReport | None:
+    """Newest full-index scan (S&P 500/100), skipping small live and custom scans."""
+    for path in list_reports():
+        report = _load_report(str(path), path.stat().st_mtime)
+        if report.universe in ("sp500", "sp100"):
+            return report
+    return None
+
+
+def _render_last_scan_summary() -> None:
+    """The result up front: what the last nightly scan did, and why it can be trusted."""
+    report = _latest_index_report()
+    if not report:
+        return
+    avoided = report.tickers_scanned - report.tickers_escalated
+    when = datetime.fromisoformat(report.started_at).strftime("%-d %b %Y")
+    universe = {"sp500": "S&P 500", "sp100": "S&P 100"}[report.universe]
+    with st.container(border=True):
+        cols = st.columns(4)
+        cols[0].metric("Last nightly scan", when, help=f"{universe}, Jev screening only")
+        cols[1].metric("Tickers screened", report.tickers_scanned)
+        cols[2].metric("Flagged for a full brief", report.tickers_escalated)
+        cols[3].metric(
+            "Research briefs avoided", f"{avoided} ({avoided / report.tickers_scanned:.0%})",
+            help="Tickers the screen cleared, so no expensive Gemini brief was needed",
+        )
+        st.caption(
+            f"Screening cost ${report.jev_cost_usd:.3f} for the whole {universe}. On a held-out, hand-labeled test "
+            f"set the same policy caught {HELD_OUT['caught']} of {HELD_OUT['events']} material events. "
+            "Details in the Daily Scan tab."
+        )
+
+
+_render_last_scan_summary()
+
 tab_brief, tab_scan = st.tabs(["Single ticker", "Daily Scan"])
 
 with tab_brief:
@@ -389,14 +427,19 @@ with tab_brief:
         ticker_input = st.text_input("Stock ticker or company name", placeholder="AAPL")
         submitted = st.form_submit_button("Screen")
 
-    if submitted:
-        query = (ticker_input or "").strip()
+    with st.container(horizontal=True, horizontal_alignment="left", vertical_alignment="center", gap="small"):
+        st.caption("Or try an example:", width="content")
+        clicked = [t for t in EXAMPLE_TICKERS if st.button(t, key=f"example_{t}")]  # draw every button
+    example = clicked[0] if clicked else None
+
+    if submitted or example:
+        query = example or (ticker_input or "").strip()
         st.session_state.pop("screen_result", None)
         st.session_state.pop("brief", None)
         if not query:
             st.warning("Please enter a ticker symbol.")
         else:
-            with st.spinner("Screening with Jev..."):
+            with st.spinner(f"Screening {query} with Jev..."):
                 st.session_state["screen_result"] = _screen_single(query)
 
     result = st.session_state.get("screen_result")

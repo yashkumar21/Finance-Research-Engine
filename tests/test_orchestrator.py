@@ -174,6 +174,7 @@ async def test_slow_brief_times_out_with_one_retry_instead_of_hanging(monkeypatc
     import agents.orchestrator as orchestrator
 
     monkeypatch.setattr(orchestrator, "BRIEF_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr(orchestrator, "BRIEF_ATTEMPTS", 2)  # exercise the retry path too
     retries = []
     started = datetime.now(timezone.utc)
     with pytest.raises(orchestrator.BriefTimeoutError, match="didn't finish"):

@@ -27,29 +27,35 @@ from agents.figures import (
     format_as_of,
     insert_key_figures,
 )
-from agents.research_agent import build_research_agent
+from agents.research_agent import build_research_step
 from agents.sentiment_agent import build_sentiment_agent
 from pricing import gemini_cost
 from schemas import ResearchBrief, Usage
 from tools.stock_data_tool import resolve_ticker
 
 APP_NAME = "finance_research_engine_orchestrator"
-# Briefs normally take 12-26 s end to end (the slowest normal run seen: 42 s).
-BRIEF_TIMEOUT_SECONDS = 60
-BRIEF_ATTEMPTS = 2
+# Briefs normally take 9-12 s end to end. When Gemini's per-minute request
+# limit is exceeded, its client waits out the limit before answering, so a
+# brief can legitimately take a minute or two - a retry would only add
+# requests and throw away finished steps. One attempt, capped so the caller
+# is never left waiting forever.
+BRIEF_TIMEOUT_SECONDS = 120
+BRIEF_ATTEMPTS = 1
 
 
 def build_pipeline() -> SequentialAgent:
     """Build a fresh Research || Sentiment -> key figures -> Analyst pipeline.
 
-    The key-figures step is plain Python, not a model: it formats the
-    Research Agent's numbers so the Analyst only ever quotes them.
+    The research and key-figures steps are plain Python, not models: one
+    fetches the numbers, the other formats them so the Analyst only ever
+    quotes them. Gemini is used where judgment is needed - news sentiment
+    and writing the brief.
 
     Fresh agent instances every call (via the build_* factories) - ADK
     forbids attaching the same agent object as a sub-agent of more than one
     parent, so this must never reuse the module-level singletons.
     """
-    research_step = build_research_agent(output_key="research_data")
+    research_step = build_research_step(output_key="research_data")
     sentiment_step = build_sentiment_agent(output_key="sentiment_data")
 
     parallel_step = ParallelAgent(
@@ -92,9 +98,9 @@ async def run_research_brief(
     it cannot alter pipeline execution. on_retry, if given, is called with
     the attempt number before a retry.
 
-    Each attempt is limited to BRIEF_TIMEOUT_SECONDS: a Gemini request can
-    stall with no error, which would otherwise leave the caller waiting
-    forever. A timed-out attempt is retried once, then BriefTimeoutError.
+    Each attempt is limited to BRIEF_TIMEOUT_SECONDS so a slow or stalled
+    Gemini request can't leave the caller waiting forever; after
+    BRIEF_ATTEMPTS attempts (default 1), BriefTimeoutError.
 
     The brief's usage sums token counts across all three agents; its cost is
     an estimate (tokens x list price, see pricing.py).
@@ -108,7 +114,8 @@ async def run_research_brief(
             if attempt == BRIEF_ATTEMPTS:
                 raise BriefTimeoutError(
                     f"The research brief for {ticker} didn't finish within {BRIEF_TIMEOUT_SECONDS} s "
-                    f"({BRIEF_ATTEMPTS} attempts) - the model service is responding slowly."
+                    f"({BRIEF_ATTEMPTS} attempt(s)) - the model service is responding slowly, often because "
+                    "its per-minute request limit was reached."
                 ) from None
             if on_retry:
                 on_retry(attempt + 1)

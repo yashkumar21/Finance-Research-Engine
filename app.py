@@ -65,9 +65,9 @@ from tools.stock_data_tool import get_quote_snapshot, resolve_ticker  # noqa: E4
 
 LIVE_SCAN_MAX_TICKERS = 20
 LIVE_SCAN_MAX_BRIEFS = 3
-# Typical time of a full Gemini brief in test runs (12-26 s), for the button label.
+# Typical time of a full brief (9-12 s since research became a Python step), for the button label.
 # Per-click costs stay out of the single-ticker flow; the Daily Scan tab shows costs.
-BRIEF_TIME_HINT = "~20 s"
+BRIEF_TIME_HINT = "~10 s"
 # One-click examples so a first-time visitor doesn't have to think of a ticker.
 EXAMPLE_TICKERS = {"AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "Nvidia", "TSLA": "Tesla"}
 
@@ -502,8 +502,9 @@ with tab_brief:
                 except BriefTimeoutError:
                     status.update(label="Timed out", state="error")
                     st.warning(
-                        "The research service is responding slowly right now, so the brief was stopped "
-                        f"after {BRIEF_TIMEOUT_SECONDS * BRIEF_ATTEMPTS // 60} minutes. The screening result above "
+                        "The research service is responding slowly right now - usually because too many "
+                        f"briefs were requested in the last minute - so the brief was stopped after "
+                        f"{BRIEF_TIMEOUT_SECONDS * BRIEF_ATTEMPTS // 60} minutes. The screening result above "
                         "still stands - please try the brief again in a minute."
                     )
                 except Exception as exc:

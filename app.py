@@ -8,7 +8,7 @@ import streamlit as st
 # Must be the very first Streamlit command in the script - touching
 # st.secrets (in _resolve_secret below) before this renders output of its
 # own when no secrets.toml exists, which then makes set_page_config raise.
-st.set_page_config(page_title="Finance Research Engine", page_icon="📈")
+st.set_page_config(page_title="Finance Research Engine", page_icon="📈", layout="wide")
 
 from dotenv import load_dotenv  # noqa: E402
 
@@ -54,6 +54,51 @@ from screener.scan import list_reports, run_scan, save_report  # noqa: E402
 LIVE_SCAN_MAX_TICKERS = 20
 LIVE_SCAN_MAX_BRIEFS = 3
 
+# Held-out evaluation of the current policy, from the committed reports in
+# eval/results/ (the JSON results are gitignored, so a deployed app can't
+# recompute these). Update alongside the README's Results section.
+HELD_OUT = {
+    "tickers": 100,
+    "events": 8,
+    "caught": 8,
+    "escalation": "26-30%",
+    "precision": "27-31%",
+    "runs": 4,
+    "report": "eval/results/compare-2026-09-27T114225Z.md",
+}
+
+METHODOLOGY_MD = f"""
+**How a nightly scan works**
+
+1. For each S&P 500 ticker, fetch today's price move and the last 7 days of headlines (Finnhub).
+2. **Jev** (TypeSafe's "System 1" decision model) answers typed questions about those headlines in one
+   cheap call (~$0.00004): overall sentiment, and the probability that a *material event* happened.
+3. A deterministic policy escalates a ticker when **material event >= 0.6**, the price moved **>= 4%**,
+   or screening failed (never silently dropped).
+4. Escalated tickers get the full Gemini research brief (research + sentiment agents in parallel,
+   then an analyst agent); the rest are recorded without one.
+
+**How it was evaluated**
+
+- *Material event* has a written definition: an earnings surprise, guidance change, M&A, major
+  litigation, regulatory action, or executive change (`eval/LABELING.md`).
+- Tickers were hand-labeled blind (headlines only, never a model's answer).
+- The policy was chosen on 102 labeled S&P 100 tickers (7 events, all caught at 26% escalation), then
+  **committed before** a held-out set was labeled.
+- **Held-out test ({HELD_OUT['tickers']} random S&P 500 tickers outside the S&P 100):** caught
+  **{HELD_OUT['caught']} of {HELD_OUT['events']}** material events at **{HELD_OUT['escalation']}**
+  escalation, across {HELD_OUT['runs']} runs and three Jev providers ({HELD_OUT['report']}).
+
+**Limitations**
+
+- Only 15 labeled events so far; 8/8 is consistent with a true recall as low as ~63%.
+- About 70% of escalations are false alarms - acceptable for a screen that must not miss events,
+  but there is room to cut briefs further.
+- Headlines are the only input; Gemini costs, and Jev's on TypeSafe's API, are estimates from tokens.
+
+*A research aid, not investment advice.*
+"""
+
 st.title("📈 Finance Research Engine")
 st.caption(
     "Multi-agent research: quantitative data + news sentiment, run in parallel "
@@ -91,25 +136,48 @@ def _usd(amount: float) -> str:
 
 
 def _results_table(report: ScanReport) -> pd.DataFrame:
+    """One row per ticker, escalated first and strongest signal first - what
+    a reviewer looks at. needs_analysis is left out: the policy doesn't use it."""
     rows = []
     for r in report.results:
         s = r.screen
         rows.append({
             "Ticker": r.ticker,
-            "Move %": r.pct_change,
             "Escalate": "yes" if r.decision.escalate else "no",
+            "Reasons": "; ".join(r.decision.reasons) or ("" if s else r.screen_error),
+            "Material event": s.material_event if s else None,
+            "Move %": r.pct_change,
             "Sentiment": s.sentiment if s else "error",
             "Confidence": s.sentiment_confidence if s else None,
-            "Material event": s.material_event if s else None,
-            "Needs analysis": s.needs_analysis if s else None,
             "Headlines": r.headline_count,
-            "Reasons": "; ".join(r.decision.reasons) or ("" if s else r.screen_error),
             "Brief": "yes" if r.brief else ("failed" if r.brief_error else ""),
         })
-    return pd.DataFrame(rows)
+    table = pd.DataFrame(rows)
+    return table.sort_values(
+        ["Escalate", "Material event"], ascending=[False, False], na_position="first", kind="stable"
+    )
+
+
+def _render_headline(report: ScanReport) -> None:
+    """The result in one line, with the evidence that the screen can be trusted."""
+    avoided = report.tickers_scanned - report.tickers_escalated
+    rate = avoided / report.tickers_scanned if report.tickers_scanned else 0
+    st.markdown(
+        f"#### This scan: **{avoided} of {report.tickers_scanned}** research briefs avoided ({rate:.0%}) - "
+        f"only **{report.tickers_escalated}** tickers flagged for a full brief"
+    )
+    st.caption(
+        f"On a held-out, hand-labeled set of {HELD_OUT['tickers']} S&P 500 tickers, the same policy caught "
+        f"{HELD_OUT['caught']} of {HELD_OUT['events']} material events while escalating {HELD_OUT['escalation']} "
+        "of tickers. See *How it works and how it was evaluated* below."
+    )
 
 
 def _render_report(report: ScanReport, reports: list[Path]) -> None:
+    _render_headline(report)
+    with st.expander("How it works and how it was evaluated"):
+        st.markdown(METHODOLOGY_MD)
+
     cols = st.columns(4)
     cols[0].metric("Tickers scanned", report.tickers_scanned)
     cols[1].metric("Escalated", f"{report.escalation_rate:.0%}", help=f"{report.tickers_escalated} tickers")
@@ -162,9 +230,10 @@ def _render_report(report: ScanReport, reports: list[Path]) -> None:
         column_config={
             "Move %": st.column_config.NumberColumn(format="%+.2f"),
             "Confidence": st.column_config.ProgressColumn(**probability, help="Jev's confidence in its sentiment call"),
-            "Material event": st.column_config.ProgressColumn(**probability, help="P(headlines report a material event)"),
-            "Needs analysis": st.column_config.ProgressColumn(**probability, help="P(a covering analyst would update their view)"),
-            "Reasons": st.column_config.TextColumn(width="large"),
+            "Material event": st.column_config.ProgressColumn(
+                **probability, help="P(headlines report a material event); escalates at 0.6"
+            ),
+            "Reasons": st.column_config.TextColumn(width="large", help="Why the policy escalated this ticker"),
         },
     )
 

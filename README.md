@@ -236,7 +236,23 @@ cost - and answers material event and needs-analysis in the same call
 
 First S&P 500 scan (Jev only): 503/503 tickers screened, 0 failures, $0.022 of Jev calls, median
 Jev latency 575 ms (p95 1,013 ms), ~28 minutes end to end - bound by Finnhub's free-tier rate limit,
-not the models.
+not the models. A second full scan (27 Sep): 503/503, 0 failures, 96 flagged (19%).
+
+End to end with briefs (S&P 100, `--max-briefs 10`, `runs/scan-2026-09-27T205045Z.json`): 103
+screened, 0 failures, 20 flagged (19%), and all 10 capped briefs generated - a measured **$0.0057 per
+brief** (range $0.0049-0.0066; ~6,300 input / 1,500 output tokens, Gemini estimated from tokens).
+The run took 6.8 minutes.
+
+**What a nightly S&P 500 run costs**, at that brief cost and 19-21% of tickers flagged:
+
+| | Per night | Per month (~22 weeknights) |
+|---|---|---|
+| A. Full Gemini brief for every ticker (503 briefs) | ~$2.87 | ~$63 |
+| B. Jev screen all 503, brief only the ~96-108 flagged | ~$0.57-0.64 | ~$13-14 |
+| **Saving** | **~78-80%** | **~$50/month** |
+
+B also makes ~100 Gemini briefs a night instead of 503 - with three Gemini requests per brief, well
+within paid-tier rate limits, where briefing everything would not fit Gemini's free tier at all.
 
 ## Evaluation method
 

@@ -46,6 +46,7 @@ import asyncio  # noqa: E402
 
 import pandas as pd  # noqa: E402
 
+import re  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime  # noqa: E402
 
@@ -142,6 +143,13 @@ def _md(text: str) -> str:
     return text.replace("$", "\\$")
 
 
+def _brief_md(markdown: str) -> str:
+    """A brief for display inside the page: headings two levels smaller (its
+    "# Title" would otherwise match the app's own title) and $ escaped."""
+    smaller = re.sub(r"^(#{1,4}) ", lambda m: "#" * (len(m[1]) + 2) + " ", markdown, flags=re.MULTILINE)
+    return _md(smaller)
+
+
 def _usd(amount: float) -> str:
     """Enough decimals that a few Jev calls don't round to $0.0000."""
     return f"${amount:.4f}" if amount >= 0.001 else f"${amount:.6f}"
@@ -152,9 +160,28 @@ def _company_names() -> dict[str, str]:
     return load_company_names()
 
 
+_REASON_PATTERNS = [
+    (re.compile(r"material event likely \(p=([\d.]+)\)"), lambda m: f"Major news likely ({float(m[1]):.0%})"),
+    (re.compile(r"price moved ([+-][\d.]+)% today"), lambda m: f"Price moved {m[1]}% today"),
+    (re.compile(r"analyst attention likely needed \(p=([\d.]+)\)"), lambda m: f"Analyst attention likely ({float(m[1]):.0%})"),
+    (re.compile(r"Jev unsure of sentiment.*"), lambda m: "Unclear news tone"),
+    (re.compile(r"(screening|scan) failed.*"), lambda m: "Screening failed - flagged to be safe"),
+]
+
+
+def _plain_reason(reason: str) -> str:
+    """Policy reasons ("material event likely (p=0.98)") in reader-facing words.
+    Also covers reports saved under the earlier policy's reasons."""
+    for pattern, fmt in _REASON_PATTERNS:
+        match = pattern.fullmatch(reason)
+        if match:
+            return fmt(match)
+    return reason
+
+
 def _results_table(report: ScanReport) -> pd.DataFrame:
-    """One row per ticker, escalated first and strongest signal first - what
-    a reviewer looks at. needs_analysis is left out: the policy doesn't use it."""
+    """One row per ticker, flagged first and strongest signal first - what a
+    reviewer looks at. needs_analysis and sentiment confidence are left out."""
     names = _company_names()
     rows = []
     for r in report.results:
@@ -162,18 +189,17 @@ def _results_table(report: ScanReport) -> pd.DataFrame:
         rows.append({
             "Ticker": r.ticker,
             "Company": r.company_name or names.get(r.ticker, ""),
-            "Escalate": "yes" if r.decision.escalate else "no",
-            "Reasons": "; ".join(r.decision.reasons) or ("" if s else r.screen_error),
-            "Material event": s.material_event if s else None,
+            "Flagged": "yes" if r.decision.escalate else "no",
+            "Why": "; ".join(_plain_reason(x) for x in r.decision.reasons),
+            "Major-news likelihood": s.material_event if s else None,
             "Move %": r.pct_change,
-            "Sentiment": s.sentiment if s else "error",
-            "Confidence": s.sentiment_confidence if s else None,
+            "News tone": s.sentiment if s else "n/a",
             "Headlines": r.headline_count,
             "Brief": "yes" if r.brief else ("failed" if r.brief_error else ""),
         })
     table = pd.DataFrame(rows)
     return table.sort_values(
-        ["Escalate", "Material event"], ascending=[False, False], na_position="first", kind="stable"
+        ["Flagged", "Major-news likelihood"], ascending=[False, False], na_position="first", kind="stable"
     )
 
 
@@ -200,36 +226,37 @@ def _render_report(report: ScanReport) -> None:
         st.markdown(METHODOLOGY_MD)
 
     show = st.segmented_control(
-        "Show", ["All", "Escalated", "Not escalated"], default="All", key="scan_filter"
+        "Show", ["All", "Flagged", "Not flagged"], default="All", key="scan_filter"
     ) or "All"
     table = _results_table(report)
     if not any(r.brief or r.brief_error for r in report.results):
         table = table.drop(columns="Brief")  # always empty on Jev-only scans
     if show != "All":
-        table = table[table["Escalate"] == ("yes" if show == "Escalated" else "no")]
+        table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
 
-    probability = dict(min_value=0.0, max_value=1.0, format="%.2f")
     st.dataframe(
         table,
         hide_index=True,
         width="stretch",
         column_config={
             "Move %": st.column_config.NumberColumn(format="%+.2f"),
-            "Confidence": st.column_config.ProgressColumn(**probability, help="Jev's confidence in its sentiment call"),
-            "Material event": st.column_config.ProgressColumn(
-                **probability, help="P(headlines report a material event); escalates at 0.6"
+            "Major-news likelihood": st.column_config.ProgressColumn(
+                min_value=0.0, max_value=1.0, format="percent",
+                help=f"Jev's probability that the headlines report {MAJOR_NEWS}; flagged at "
+                     f"{DEFAULT_POLICY.material_event_threshold:.0%} or above",
             ),
-            "Reasons": st.column_config.TextColumn(width="medium", help="Why the policy escalated this ticker"),
+            "Why": st.column_config.TextColumn(width="medium", help="Why the ticker was flagged for a full brief"),
         },
     )
 
     briefed = [r for r in report.results if r.brief or r.brief_error]
     if briefed:
-        st.subheader("Briefs for escalated tickers")
+        st.subheader("Briefs for flagged tickers")
         for r in briefed:
-            with st.expander(f"{r.ticker} - {'; '.join(r.decision.reasons)}"):
+            with st.expander(f"{_display_name(r.ticker, r.company_name)} - "
+                             f"{'; '.join(_plain_reason(x) for x in r.decision.reasons)}"):
                 if r.brief:
-                    st.markdown(_md(r.brief.brief_markdown))
+                    st.markdown(_brief_md(r.brief.brief_markdown))
                     if r.brief.usage:
                         st.caption(f"Estimated Gemini cost: ${r.brief.usage.cost_usd:.4f}")
                 else:
@@ -296,37 +323,52 @@ def _screen_single(query: str) -> dict:
     return result
 
 
+MAJOR_NEWS = "earnings, guidance, M&A, lawsuits, regulation or a leadership change"
+
+
+def _display_name(ticker: str, fallback: str | None = None) -> str:
+    """'Apple Inc. (AAPL)' when the name is known, else just the ticker."""
+    name = _company_names().get(ticker) or fallback
+    return f"{name} ({ticker})" if name else ticker
+
+
 def _render_screen(result: dict) -> None:
     ticker, screen, decision = result["ticker"], result["screen"], result["decision"]
     if result["error"]:
         st.error(f"Couldn't screen {ticker}: {result['error']}")
         return
 
+    name = _display_name(ticker, result["news"].get("company_name"))
     threshold = DEFAULT_POLICY.material_event_threshold
+    move_limit = DEFAULT_POLICY.price_move_threshold_pct
+    move = result["quote"].get("pct_change")
     with st.container(border=True):
         if decision.escalate:
-            st.markdown(f"### {ticker}: flagged for a full brief")
-            st.markdown("Tonight's scan would escalate this ticker: " + "; ".join(decision.reasons) + ".")
+            st.markdown(f"### {name}: flagged for a full brief")
+            why = []
+            if screen["material_event"] >= threshold:
+                why.append(f"Recent headlines suggest major news ({MAJOR_NEWS}).")
+            if move is not None and abs(move) >= move_limit:
+                why.append(f"The stock moved {move:+.1f}% today.")
+            st.markdown("\n".join(f"- {w}" for w in why) or "Flagged by tonight's screening rules.")
         else:
-            st.markdown(f"### {ticker}: nothing material detected")
-            st.markdown(
-                f"Tonight's scan would not escalate this ticker - material-event probability "
-                f"{screen['material_event']:.2f} is below {threshold}, and the price move is under "
-                f"{DEFAULT_POLICY.price_move_threshold_pct:.0f}%."
-            )
+            st.markdown(f"### {name}: nothing major detected")
+            st.markdown(f"No sign of major news ({MAJOR_NEWS}) and no big price move today.")
 
         cols = st.columns(3)
         cols[0].metric(
-            "Material event", f"{screen['material_event']:.2f}",
-            help=f"Jev's probability that the headlines report an earnings surprise, guidance change, M&A, "
-                 f"major litigation, regulatory action or executive change. Escalates at {threshold}.",
+            "Major-news likelihood", f"{screen['material_event']:.0%}",
+            help=f"Jev's probability that the headlines report {MAJOR_NEWS}. "
+                 f"Tickers at {threshold:.0%} or above are flagged for a full brief.",
         )
         cols[1].metric(
             "News tone", screen["sentiment"],
-            help=f"Jev's confidence in this call: {screen['sentiment_confidence']:.2f}",
+            help=f"Jev's confidence in this call: {screen['sentiment_confidence']:.0%}",
         )
-        move = result["quote"].get("pct_change")
-        cols[2].metric("Today's move", f"{move:+.2f}%" if move is not None else "n/a")
+        cols[2].metric(
+            "Today's move", f"{move:+.2f}%" if move is not None else "n/a",
+            help=f"Moves of {move_limit:.0f}% or more are flagged for a full brief.",
+        )
 
         about = headlines_about(result["news"]["headlines"], ticker, result["news"].get("company_name"))
         if about:
@@ -481,14 +523,16 @@ with tab_brief:
             if not brief.sentiment.get("success", True):
                 st.warning(f"Sentiment data unavailable for {brief.ticker}: {brief.sentiment.get('error')}")
 
-            st.markdown(_md(brief.brief_markdown))
+            with st.container(border=True):
+                st.markdown(_brief_md(brief.brief_markdown))
             st.caption(f"Brief generated in {seconds:.0f} s.")
 
-            with st.expander("Research Agent output (raw)"):
-                st.json(brief.research)
-
-            with st.expander("Sentiment Agent output (raw)"):
-                st.json(brief.sentiment)
+            with st.expander("Technical details"):
+                st.caption("What each data step returned, before the Analyst wrote the brief.")
+                st.markdown("**Research step** (price and fundamentals from Finnhub)")
+                st.json(brief.research, expanded=False)
+                st.markdown("**Sentiment Agent** (news tone and the headlines it cited)")
+                st.json(brief.sentiment, expanded=False)
 
 
 with tab_scan:

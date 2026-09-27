@@ -10,6 +10,7 @@ current idiomatic, documented way to compose this exact fan-out/fan-in
 pattern. Revisit if/when Workflow matures.
 """
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -33,6 +34,9 @@ from schemas import ResearchBrief, Usage
 from tools.stock_data_tool import resolve_ticker
 
 APP_NAME = "finance_research_engine_orchestrator"
+# Briefs normally take 12-26 s end to end (the slowest normal run seen: 42 s).
+BRIEF_TIMEOUT_SECONDS = 60
+BRIEF_ATTEMPTS = 2
 
 
 def build_pipeline() -> SequentialAgent:
@@ -71,21 +75,48 @@ def _parse_json(text: str) -> dict:
     return json.loads(cleaned)
 
 
+class BriefTimeoutError(RuntimeError):
+    """The brief didn't finish within its time limit on any attempt."""
+
+
 async def run_research_brief(
     ticker: str,
     user_id: str = "orchestrator_user",
     on_event: Optional[Callable[[Event], None]] = None,
+    on_retry: Optional[Callable[[int], None]] = None,
 ) -> ResearchBrief:
     """Run the full pipeline for a ticker and return the assembled brief.
 
     on_event, if given, is called synchronously once per streamed event
     (e.g. to drive live per-agent status in a UI) - purely observational,
-    it cannot alter pipeline execution.
+    it cannot alter pipeline execution. on_retry, if given, is called with
+    the attempt number before a retry.
+
+    Each attempt is limited to BRIEF_TIMEOUT_SECONDS: a Gemini request can
+    stall with no error, which would otherwise leave the caller waiting
+    forever. A timed-out attempt is retried once, then BriefTimeoutError.
 
     The brief's usage sums token counts across all three agents; its cost is
     an estimate (tokens x list price, see pricing.py).
     """
     ticker = resolve_ticker(ticker)
+    for attempt in range(1, BRIEF_ATTEMPTS + 1):
+        try:
+            async with asyncio.timeout(BRIEF_TIMEOUT_SECONDS):
+                return await _run_pipeline(ticker, user_id, on_event)
+        except TimeoutError:
+            if attempt == BRIEF_ATTEMPTS:
+                raise BriefTimeoutError(
+                    f"The research brief for {ticker} didn't finish within {BRIEF_TIMEOUT_SECONDS} s "
+                    f"({BRIEF_ATTEMPTS} attempts) - the model service is responding slowly."
+                ) from None
+            if on_retry:
+                on_retry(attempt + 1)
+
+
+async def _run_pipeline(
+    ticker: str, user_id: str, on_event: Optional[Callable[[Event], None]]
+) -> ResearchBrief:
     pipeline = build_pipeline()
     runner = InMemoryRunner(agent=pipeline, app_name=APP_NAME)
 

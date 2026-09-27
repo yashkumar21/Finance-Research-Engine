@@ -165,3 +165,18 @@ async def test_end_to_end_company_name_resolves_ticker_in_brief():
     # The Analyst's heading is templated from the same resolved ticker used
     # to fetch data, so it must read "AAPL", not the literal input "APPLE".
     assert "# AAPL Research Brief" in brief.brief_markdown
+
+
+@pytest.mark.asyncio
+async def test_slow_brief_times_out_with_one_retry_instead_of_hanging(monkeypatch):
+    # A time limit no real pipeline can meet stands in for a stalled Gemini
+    # request: the brief must give up with a clear error after one retry.
+    import agents.orchestrator as orchestrator
+
+    monkeypatch.setattr(orchestrator, "BRIEF_TIMEOUT_SECONDS", 0.5)
+    retries = []
+    started = datetime.now(timezone.utc)
+    with pytest.raises(orchestrator.BriefTimeoutError, match="didn't finish"):
+        await orchestrator.run_research_brief("AAPL", on_retry=retries.append)
+    assert retries == [2]
+    assert (datetime.now(timezone.utc) - started).total_seconds() < 15

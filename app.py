@@ -50,7 +50,12 @@ import pandas as pd  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime  # noqa: E402
 
-from agents.orchestrator import run_research_brief  # noqa: E402
+from agents.orchestrator import (  # noqa: E402
+    BRIEF_ATTEMPTS,
+    BRIEF_TIMEOUT_SECONDS,
+    BriefTimeoutError,
+    run_research_brief,
+)
 from schemas import ScanReport  # noqa: E402
 from screener.policy import DEFAULT_POLICY, decide  # noqa: E402
 from screener.scan import list_reports, run_scan, save_report  # noqa: E402
@@ -475,9 +480,21 @@ with tab_brief:
                         status.update(label="Synthesizing research brief...")
                         status.write("✍️ Analyst Agent: synthesizing brief")
 
+                def on_retry(attempt):
+                    progress.update(research_done=False, sentiment_done=False, analyst_started=False)
+                    status.update(label="Taking longer than usual - retrying...")
+                    status.write(f"⏳ The model service was slow, so the brief restarted (attempt {attempt}).")
+
                 started = time.perf_counter()
                 try:
-                    brief = asyncio.run(run_research_brief(ticker, on_event=on_event))
+                    brief = asyncio.run(run_research_brief(ticker, on_event=on_event, on_retry=on_retry))
+                except BriefTimeoutError:
+                    status.update(label="Timed out", state="error")
+                    st.warning(
+                        "The research service is responding slowly right now, so the brief was stopped "
+                        f"after {BRIEF_TIMEOUT_SECONDS * BRIEF_ATTEMPTS // 60} minutes. The screening result above "
+                        "still stands - please try the brief again in a minute."
+                    )
                 except Exception as exc:
                     status.update(label="Failed", state="error")
                     st.error(

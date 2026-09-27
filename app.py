@@ -365,13 +365,8 @@ def _render_screen(result: dict) -> None:
             st.markdown("**Headlines about the company**")
             for h in about[:3]:
                 st.markdown(f"- [{_md(h['headline'])}]({h['url']}) - {h['source']}, {h['published_at'][:10]}")
-        others = len(result["news"]["headlines"]) - len(about)
         cost = f"${result['cost_usd']:.5f}" if result["cost_usd"] else "under $0.0001"
-        st.caption(
-            f"Screened by Jev ({screen['model']}) in {result['seconds']:.1f} s for {cost} (estimated), "
-            f"reading {len(result['news']['headlines'])} recent headlines"
-            + (f", {others} of them about other companies (the nightly scan's input, kept as-is)." if others else ".")
-        )
+        st.caption(f"Screened by Jev ({screen['model']}) in {result['seconds']:.1f} s for {cost} (estimated).")
 
 
 def _latest_index_report() -> ScanReport | None:

@@ -234,10 +234,14 @@ def _render_report(report: ScanReport) -> None:
     if show != "All":
         table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
 
-    st.dataframe(
+    st.caption("Select a row to see why a company was flagged and the headlines behind it.")
+    selection = st.dataframe(
         table,
         hide_index=True,
         width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
+        key="scan_table",
         column_config={
             "Move %": st.column_config.NumberColumn(format="%+.2f"),
             "Major-news likelihood": st.column_config.ProgressColumn(
@@ -248,6 +252,9 @@ def _render_report(report: ScanReport) -> None:
             "Why": st.column_config.TextColumn(width="medium", help="Why the ticker was flagged for a full brief"),
         },
     )
+    rows = selection.selection.rows
+    if rows and rows[0] < len(table):
+        _render_scan_detail(report, table.iloc[rows[0]]["Ticker"])
 
     briefed = [r for r in report.results if r.brief or r.brief_error]
     if briefed:
@@ -261,6 +268,28 @@ def _render_report(report: ScanReport) -> None:
                         st.caption(f"Estimated Gemini cost: ${r.brief.usage.cost_usd:.4f}")
                 else:
                     st.error(f"Brief failed: {r.brief_error}")
+
+
+def _render_scan_detail(report: ScanReport, ticker: str) -> None:
+    """The evidence behind one row: verdict, headlines Jev read, and the brief on request."""
+    result = next((r for r in report.results if r.ticker == ticker), None)
+    if result is None:
+        return
+    when = datetime.fromisoformat(report.started_at).strftime("%-d %b %Y")
+    headlines = [h.model_dump() for h in result.headlines]
+    caption = f"From the {when} scan."
+    if not headlines:
+        caption += " Headlines weren't recorded in this scan."
+    _render_verdict(
+        ticker, result.company_name, result.screen.model_dump() if result.screen else None,
+        result.decision, result.pct_change, headlines, caption=caption, when=f"on {when}",
+    )
+    if result.brief:
+        with st.container(border=True):
+            st.markdown(_brief_md(result.brief.brief_markdown))
+        st.caption("Brief generated during the scan.")
+    else:
+        _brief_flow(ticker, result.decision.escalate, "scan_brief")
 
 
 def _render_live_scan() -> None:
@@ -332,50 +361,172 @@ def _display_name(ticker: str, fallback: str | None = None) -> str:
     return f"{name} ({ticker})" if name else ticker
 
 
-def _render_screen(result: dict) -> None:
-    ticker, screen, decision = result["ticker"], result["screen"], result["decision"]
-    if result["error"]:
-        st.error(f"Couldn't screen {ticker}: {result['error']}")
-        return
-
-    name = _display_name(ticker, result["news"].get("company_name"))
+def _render_verdict(
+    ticker: str,
+    company_name: str | None,
+    screen: dict | None,
+    decision,
+    move: float | None,
+    headlines: list[dict],
+    caption: str,
+    when: str = "today",
+) -> None:
+    """The screening verdict for one company - used by Single ticker and the
+    Daily Scan detail panel. screen is a ScreenResult as a dict, or None if
+    screening failed."""
+    name = _display_name(ticker, company_name)
     threshold = DEFAULT_POLICY.material_event_threshold
     move_limit = DEFAULT_POLICY.price_move_threshold_pct
-    move = result["quote"].get("pct_change")
     with st.container(border=True):
         if decision.escalate:
             st.markdown(f"### {name}: flagged for a full brief")
             why = []
-            if screen["material_event"] >= threshold:
+            if screen and screen["material_event"] >= threshold:
                 why.append(f"Recent headlines suggest major news ({MAJOR_NEWS}).")
             if move is not None and abs(move) >= move_limit:
-                why.append(f"The stock moved {move:+.1f}% today.")
-            st.markdown("\n".join(f"- {w}" for w in why) or "Flagged by tonight's screening rules.")
+                why.append(f"The stock moved {move:+.1f}% {when}.")
+            if not screen:
+                why.append("Screening couldn't run, so it was flagged to be safe.")
+            st.markdown("\n".join(f"- {w}" for w in why) or "- Flagged by the screening rules at the time.")
         else:
             st.markdown(f"### {name}: nothing major detected")
-            st.markdown(f"No sign of major news ({MAJOR_NEWS}) and no big price move today.")
+            st.markdown(f"No sign of major news ({MAJOR_NEWS}) and no big price move {when}.")
 
         cols = st.columns(3)
-        cols[0].metric(
-            "Major-news likelihood", f"{screen['material_event']:.0%}",
-            help=f"Jev's probability that the headlines report {MAJOR_NEWS}. "
-                 f"Tickers at {threshold:.0%} or above are flagged for a full brief.",
-        )
-        cols[1].metric(
-            "News tone", screen["sentiment"],
-            help=f"Jev's confidence in this call: {screen['sentiment_confidence']:.0%}",
-        )
+        if screen:
+            cols[0].metric(
+                "Major-news likelihood", f"{screen['material_event']:.0%}",
+                help=f"Jev's probability that the headlines report {MAJOR_NEWS}. "
+                     f"Tickers at {threshold:.0%} or above are flagged for a full brief.",
+            )
+            cols[1].metric(
+                "News tone", screen["sentiment"],
+                help=f"Jev's confidence in this call: {screen['sentiment_confidence']:.0%}",
+            )
         cols[2].metric(
-            "Today's move", f"{move:+.2f}%" if move is not None else "n/a",
+            "Price move", f"{move:+.2f}%" if move is not None else "n/a",
             help=f"Moves of {move_limit:.0f}% or more are flagged for a full brief.",
         )
 
-        about = headlines_about(result["news"]["headlines"], ticker, result["news"].get("company_name"))
+        about = headlines_about(headlines, ticker, company_name or _company_names().get(ticker, ""))
         if about:
             st.markdown("**Headlines about the company**")
-            for h in about[:3]:
+            for h in about[:5]:
                 st.markdown(f"- [{_md(h['headline'])}]({h['url']}) - {h['source']}, {h['published_at'][:10]}")
-        st.caption(f"Screened by Jev in {result['seconds']:.1f} s.")
+        elif headlines:
+            st.markdown("**Headlines the screen read**")
+            for h in headlines[:5]:
+                st.markdown(f"- [{_md(h['headline'])}]({h['url']}) - {h['source']}, {h['published_at'][:10]}")
+        st.caption(caption)
+
+
+def _render_screen(result: dict) -> None:
+    ticker = result["ticker"]
+    if result["error"]:
+        st.error(f"Couldn't screen {ticker}: {result['error']}")
+        return
+    _render_verdict(
+        ticker, result["news"].get("company_name"), result["screen"], result["decision"],
+        result["quote"].get("pct_change"), result["news"]["headlines"],
+        caption=f"Screened by Jev in {result['seconds']:.1f} s.",
+    )
+
+
+def _stored_brief(state_key: str, ticker: str) -> dict | None:
+    stored = st.session_state.get(state_key)
+    return stored if isinstance(stored, dict) and stored.get("ticker") == ticker else None
+
+
+def _brief_flow(ticker: str, flagged: bool, state_key: str) -> None:
+    """The "Get the full research brief" button, its progress box and the brief.
+
+    state_key keeps each place's brief separate (Single ticker vs. Daily Scan).
+    """
+    done = _stored_brief(state_key, ticker) is not None
+    with st.container(horizontal=True, vertical_alignment="center"):
+        want_brief = st.button(
+            f"Get the full research brief ({BRIEF_TIME_HINT})",
+            type="primary" if flagged else "secondary",
+            disabled=done,
+            key=f"{state_key}_button",
+        )
+        st.caption(
+            "Recommended - the screen flagged this ticker."
+            if flagged
+            else "Nothing was flagged, but you can still run the full brief."
+        )
+    if want_brief:
+        progress = {"research_done": False, "sentiment_done": False, "analyst_started": False}
+        brief = None
+
+        with st.status("Fetching quantitative + sentiment data...", expanded=True) as status:
+
+            def on_event(event):
+                has_text = bool(
+                    event.content and event.content.parts and any(p.text for p in event.content.parts)
+                )
+                if not has_text:
+                    return
+                if event.author == "research_agent" and not progress["research_done"]:
+                    progress["research_done"] = True
+                    status.write("✅ Research Agent: quantitative data received")
+                elif event.author == "sentiment_agent" and not progress["sentiment_done"]:
+                    progress["sentiment_done"] = True
+                    status.write("✅ Sentiment Agent: news sentiment received")
+                elif event.author == "analyst_agent" and not progress["analyst_started"]:
+                    progress["analyst_started"] = True
+                    status.update(label="Synthesizing research brief...")
+                    status.write("✍️ Analyst Agent: synthesizing brief")
+
+            def on_retry(attempt):
+                progress.update(research_done=False, sentiment_done=False, analyst_started=False)
+                status.update(label="Taking longer than usual - retrying...")
+                status.write(f"⏳ The model service was slow, so the brief restarted (attempt {attempt}).")
+
+            started = time.perf_counter()
+            try:
+                brief = asyncio.run(run_research_brief(ticker, on_event=on_event, on_retry=on_retry))
+            except BriefTimeoutError:
+                status.update(label="Timed out", state="error")
+                st.warning(
+                    "The research service is responding slowly right now - usually because too many "
+                    f"briefs were requested in the last minute - so the brief was stopped after "
+                    f"{BRIEF_TIMEOUT_SECONDS * BRIEF_ATTEMPTS // 60} minutes. The screening result above "
+                    "still stands - please try the brief again in a minute."
+                )
+            except Exception as exc:
+                status.update(label="Failed", state="error")
+                st.error(
+                    "Something went wrong while generating the research brief. "
+                    "This is usually a missing/invalid API key or a temporary rate limit. "
+                    f"Details: {exc}"
+                )
+            else:
+                status.update(label="Research brief ready", state="complete")
+                st.session_state[state_key] = {
+                    "ticker": ticker, "brief": brief, "seconds": time.perf_counter() - started,
+                }
+        if _stored_brief(state_key, ticker):
+            st.rerun()  # redraw with the button disabled and the brief below
+
+    stored = _stored_brief(state_key, ticker)
+    if stored:
+        brief, seconds = stored["brief"], stored["seconds"]
+        if not brief.research.get("success", True):
+            st.warning(f"Quantitative data unavailable for {brief.ticker}: {brief.research.get('error')}")
+        if not brief.sentiment.get("success", True):
+            st.warning(f"Sentiment data unavailable for {brief.ticker}: {brief.sentiment.get('error')}")
+
+        with st.container(border=True):
+            st.markdown(_brief_md(brief.brief_markdown))
+        st.caption(f"Brief generated in {seconds:.0f} s.")
+
+        with st.expander("Technical details"):
+            st.caption("What each data step returned, before the Analyst wrote the brief.")
+            st.markdown("**Research step** (price and fundamentals from Finnhub)")
+            st.json(brief.research, expanded=False)
+            st.markdown("**Sentiment Agent** (news tone and the headlines it cited)")
+            st.json(brief.sentiment, expanded=False)
 
 
 def _latest_index_report() -> ScanReport | None:
@@ -453,86 +604,7 @@ with tab_brief:
         _render_screen(result)
         ticker = result["ticker"]
         escalate = result["decision"] is not None and result["decision"].escalate
-        with st.container(horizontal=True, vertical_alignment="center"):
-            want_brief = st.button(
-                f"Get the full research brief ({BRIEF_TIME_HINT})",
-                type="primary" if escalate else "secondary",
-                disabled="brief" in st.session_state,
-            )
-            st.caption(
-                "Recommended - the screen flagged this ticker."
-                if escalate
-                else "Nothing was flagged, but you can still run the full brief."
-            )
-        if want_brief:
-            progress = {"research_done": False, "sentiment_done": False, "analyst_started": False}
-            brief = None
-
-            with st.status("Fetching quantitative + sentiment data...", expanded=True) as status:
-
-                def on_event(event):
-                    has_text = bool(
-                        event.content and event.content.parts and any(p.text for p in event.content.parts)
-                    )
-                    if not has_text:
-                        return
-                    if event.author == "research_agent" and not progress["research_done"]:
-                        progress["research_done"] = True
-                        status.write("✅ Research Agent: quantitative data received")
-                    elif event.author == "sentiment_agent" and not progress["sentiment_done"]:
-                        progress["sentiment_done"] = True
-                        status.write("✅ Sentiment Agent: news sentiment received")
-                    elif event.author == "analyst_agent" and not progress["analyst_started"]:
-                        progress["analyst_started"] = True
-                        status.update(label="Synthesizing research brief...")
-                        status.write("✍️ Analyst Agent: synthesizing brief")
-
-                def on_retry(attempt):
-                    progress.update(research_done=False, sentiment_done=False, analyst_started=False)
-                    status.update(label="Taking longer than usual - retrying...")
-                    status.write(f"⏳ The model service was slow, so the brief restarted (attempt {attempt}).")
-
-                started = time.perf_counter()
-                try:
-                    brief = asyncio.run(run_research_brief(ticker, on_event=on_event, on_retry=on_retry))
-                except BriefTimeoutError:
-                    status.update(label="Timed out", state="error")
-                    st.warning(
-                        "The research service is responding slowly right now - usually because too many "
-                        f"briefs were requested in the last minute - so the brief was stopped after "
-                        f"{BRIEF_TIMEOUT_SECONDS * BRIEF_ATTEMPTS // 60} minutes. The screening result above "
-                        "still stands - please try the brief again in a minute."
-                    )
-                except Exception as exc:
-                    status.update(label="Failed", state="error")
-                    st.error(
-                        "Something went wrong while generating the research brief. "
-                        "This is usually a missing/invalid API key or a temporary rate limit. "
-                        f"Details: {exc}"
-                    )
-                else:
-                    status.update(label="Research brief ready", state="complete")
-                    st.session_state["brief"] = (brief, time.perf_counter() - started)
-            if "brief" in st.session_state:
-                st.rerun()  # redraw with the button disabled and the brief below
-
-        if "brief" in st.session_state:
-            brief, seconds = st.session_state["brief"]
-            if not brief.research.get("success", True):
-                st.warning(f"Quantitative data unavailable for {brief.ticker}: {brief.research.get('error')}")
-            if not brief.sentiment.get("success", True):
-                st.warning(f"Sentiment data unavailable for {brief.ticker}: {brief.sentiment.get('error')}")
-
-            with st.container(border=True):
-                st.markdown(_brief_md(brief.brief_markdown))
-            st.caption(f"Brief generated in {seconds:.0f} s.")
-
-            with st.expander("Technical details"):
-                st.caption("What each data step returned, before the Analyst wrote the brief.")
-                st.markdown("**Research step** (price and fundamentals from Finnhub)")
-                st.json(brief.research, expanded=False)
-                st.markdown("**Sentiment Agent** (news tone and the headlines it cited)")
-                st.json(brief.sentiment, expanded=False)
+        _brief_flow(ticker, escalate, "brief")
 
 
 with tab_scan:

@@ -179,6 +179,15 @@ def _plain_reason(reason: str) -> str:
     return reason
 
 
+def _why(r) -> str:
+    """The table's Why column: flag reasons, a close call, or a dash."""
+    if r.decision.escalate:
+        return "; ".join(_plain_reason(x) for x in r.decision.reasons)
+    if r.screen and _is_close_call(r.screen.material_event, False):
+        return f"Close call ({r.screen.material_event:.0%})"
+    return "–"
+
+
 def _results_table(report: ScanReport) -> pd.DataFrame:
     """One row per ticker, flagged first and strongest signal first - what a
     reviewer looks at. needs_analysis and sentiment confidence are left out."""
@@ -190,7 +199,7 @@ def _results_table(report: ScanReport) -> pd.DataFrame:
             "Ticker": r.ticker,
             "Company": r.company_name or names.get(r.ticker, ""),
             "Flagged": "yes" if r.decision.escalate else "no",
-            "Why": "; ".join(_plain_reason(x) for x in r.decision.reasons),
+            "Why": _why(r),
             "Major-news likelihood": s.material_event if s else None,
             "Move %": r.pct_change,
             "News tone": s.sentiment if s else "n/a",
@@ -234,7 +243,7 @@ def _render_report(report: ScanReport) -> None:
     if show != "All":
         table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
 
-    st.caption("Select a row to see why a company was flagged and the headlines behind it.")
+    st.caption("Select a row to see the evidence behind the decision - the headlines the screen read.")
     selection = st.dataframe(
         table,
         hide_index=True,
@@ -289,7 +298,9 @@ def _render_scan_detail(report: ScanReport, ticker: str) -> None:
             st.markdown(_brief_md(result.brief.brief_markdown))
         st.caption("Brief generated during the scan.")
     else:
-        _brief_flow(ticker, result.decision.escalate, "scan_brief")
+        material = result.screen.material_event if result.screen else None
+        _brief_flow(ticker, result.decision.escalate, "scan_brief",
+                    close_call=_is_close_call(material, result.decision.escalate))
 
 
 def _render_live_scan() -> None:
@@ -353,6 +364,13 @@ def _screen_single(query: str) -> dict:
 
 
 MAJOR_NEWS = "earnings, guidance, M&A, lawsuits, regulation or a leadership change"
+# Not flagged, but near enough the cut-off that "no sign of major news" would
+# be untrue - e.g. 59% against a 60% threshold.
+CLOSE_CALL_FLOOR = 0.45
+
+
+def _is_close_call(material_event: float | None, flagged: bool) -> bool:
+    return not flagged and material_event is not None and material_event >= CLOSE_CALL_FLOOR
 
 
 def _display_name(ticker: str, fallback: str | None = None) -> str:
@@ -388,6 +406,13 @@ def _render_verdict(
             if not screen:
                 why.append("Screening couldn't run, so it was flagged to be safe.")
             st.markdown("\n".join(f"- {w}" for w in why) or "- Flagged by the screening rules at the time.")
+        elif _is_close_call(screen["material_event"] if screen else None, False):
+            st.markdown(f"### {name}: close call")
+            st.markdown(
+                f"Major-news likelihood of {screen['material_event']:.0%} is just below the "
+                f"{threshold:.0%} cut-off, so the scan doesn't flag it - but the headlines below may "
+                "still be worth a closer look."
+            )
         else:
             st.markdown(f"### {name}: nothing major detected")
             st.markdown(f"No sign of major news ({MAJOR_NEWS}) and no big price move {when}.")
@@ -437,7 +462,7 @@ def _stored_brief(state_key: str, ticker: str) -> dict | None:
     return stored if isinstance(stored, dict) and stored.get("ticker") == ticker else None
 
 
-def _brief_flow(ticker: str, flagged: bool, state_key: str) -> None:
+def _brief_flow(ticker: str, flagged: bool, state_key: str, close_call: bool = False) -> None:
     """The "Get the full research brief" button, its progress box and the brief.
 
     state_key keeps each place's brief separate (Single ticker vs. Daily Scan).
@@ -446,13 +471,13 @@ def _brief_flow(ticker: str, flagged: bool, state_key: str) -> None:
     with st.container(horizontal=True, vertical_alignment="center"):
         want_brief = st.button(
             f"Get the full research brief ({BRIEF_TIME_HINT})",
-            type="primary" if flagged else "secondary",
+            type="primary" if flagged or close_call else "secondary",
             disabled=done,
             key=f"{state_key}_button",
         )
         st.caption(
-            "Recommended - the screen flagged this ticker."
-            if flagged
+            "Recommended - the screen flagged this ticker." if flagged
+            else "Worth a look - a close call." if close_call
             else "Nothing was flagged, but you can still run the full brief."
         )
     if want_brief:
@@ -604,7 +629,8 @@ with tab_brief:
         _render_screen(result)
         ticker = result["ticker"]
         escalate = result["decision"] is not None and result["decision"].escalate
-        _brief_flow(ticker, escalate, "brief")
+        material = result["screen"]["material_event"] if result["screen"] and result["screen"].get("success") else None
+        _brief_flow(ticker, escalate, "brief", close_call=_is_close_call(material, escalate))
 
 
 with tab_scan:

@@ -48,6 +48,12 @@ def _is_about(article: dict, patterns: list[re.Pattern]) -> bool:
     return any(p.search(text) for p in patterns)
 
 
+def headlines_about(headlines: list[dict], ticker: str, company_name: str) -> list[dict]:
+    """The headlines that name the company or its ticker (headline text only)."""
+    patterns = _name_patterns(ticker, company_name or "")
+    return [h for h in headlines if _is_about(h, patterns)]
+
+
 def get_company_news(ticker: str) -> dict:
     """Fetch recent news headlines for a stock ticker.
 
@@ -63,6 +69,7 @@ def get_company_news(ticker: str) -> dict:
         On success, a dict with keys:
             success (bool): True
             ticker (str): the ticker symbol, uppercased
+            company_name (str or None): the company's name per Finnhub
             headlines (list[dict]): each with "headline", "source", "url",
                 and "published_at" (ISO 8601 string), most recent first.
                 An empty list means no recent news coverage was found - this
@@ -159,7 +166,7 @@ def _fetch_news(ticker: str, relevant_only: bool) -> dict:
             )
         headlines = headlines[:MAX_HEADLINES]
 
-        result = {"success": True, "ticker": ticker, "headlines": headlines}
+        result = {"success": True, "ticker": ticker, "headlines": headlines, "company_name": profile.get("name")}
         if not headlines and relevant_only and fetched:
             result["note"] = (
                 f"Finnhub returned {fetched} articles for '{ticker}' in the last {LOOKBACK_DAYS} days, "

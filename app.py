@@ -47,12 +47,21 @@ import statistics  # noqa: E402
 
 import pandas as pd  # noqa: E402
 
+import time  # noqa: E402
+
 from agents.orchestrator import run_research_brief  # noqa: E402
 from schemas import ScanReport  # noqa: E402
+from screener.policy import DEFAULT_POLICY, decide  # noqa: E402
 from screener.scan import list_reports, run_scan, save_report  # noqa: E402
+from tools.jev_screen import screen_ticker  # noqa: E402
+from tools.news_tool import get_company_news, headlines_about  # noqa: E402
+from tools.stock_data_tool import get_quote_snapshot, resolve_ticker  # noqa: E402
 
 LIVE_SCAN_MAX_TICKERS = 20
 LIVE_SCAN_MAX_BRIEFS = 3
+# Typical cost and time of a full Gemini brief, for the button label: ~$0.004-0.008
+# estimated from token counts in test runs, 12-26 s end to end.
+BRIEF_COST_HINT = "~20 s, ~$0.008"
 
 # Held-out evaluation of the current policy, from the committed reports in
 # eval/results/ (the JSON results are gitignored, so a deployed app can't
@@ -128,6 +137,12 @@ def _report_label(path: Path) -> str:
     report = _load_report(str(path), path.stat().st_mtime)
     mode = f"{report.briefs_generated} briefs" if report.escalation_enabled else "Jev only"
     return f"{report.started_at[:16].replace('T', ' ')} UTC - {report.universe}, {report.tickers_scanned} tickers ({mode})"
+
+
+def _md(text: str) -> str:
+    """Markdown-safe text: Streamlit renders $...$ as LaTeX, and headlines and
+    briefs are full of dollar amounts ("$10 Billion ... $38 Billion")."""
+    return text.replace("$", "\\$")
 
 
 def _usd(amount: float) -> str:
@@ -243,7 +258,7 @@ def _render_report(report: ScanReport, reports: list[Path]) -> None:
         for r in briefed:
             with st.expander(f"{r.ticker} - {'; '.join(r.decision.reasons)}"):
                 if r.brief:
-                    st.markdown(r.brief.brief_markdown)
+                    st.markdown(_md(r.brief.brief_markdown))
                     if r.brief.usage:
                         st.caption(f"Estimated Gemini cost: ${r.brief.usage.cost_usd:.4f}")
                 else:
@@ -283,6 +298,79 @@ def _render_live_scan() -> None:
             status.update(label="Scan complete - showing it below", state="complete")
 
 
+def _screen_single(query: str) -> dict:
+    """Step 1: the nightly scan's check for one ticker - quote, headlines, Jev, policy.
+
+    Jev reads the same unfiltered headlines as the nightly scan, so the verdict
+    is exactly what tonight's scan would decide; only the display below picks
+    out the on-topic headlines.
+    """
+    started = time.perf_counter()
+    ticker = resolve_ticker(query)
+    quote = get_quote_snapshot(ticker)
+    news = get_company_news(ticker)
+    result = {"ticker": ticker, "quote": quote, "news": news, "screen": None, "decision": None,
+              "error": None, "cost_usd": 0.0}
+    if not quote["success"] or not news["success"]:
+        result["error"] = "; ".join(d["error"] for d in (quote, news) if not d["success"])
+    else:
+        screen = screen_ticker(ticker, quote, news)
+        result["screen"] = screen
+        if screen.get("success"):
+            result["cost_usd"] = screen["usage"]["cost_usd"]
+            result["decision"] = decide(screen, quote.get("pct_change"), DEFAULT_POLICY)
+        else:
+            result["error"] = screen["error"]
+    result["seconds"] = time.perf_counter() - started
+    return result
+
+
+def _render_screen(result: dict) -> None:
+    ticker, screen, decision = result["ticker"], result["screen"], result["decision"]
+    if result["error"]:
+        st.error(f"Couldn't screen {ticker}: {result['error']}")
+        return
+
+    threshold = DEFAULT_POLICY.material_event_threshold
+    with st.container(border=True):
+        if decision.escalate:
+            st.markdown(f"### {ticker}: flagged for a full brief")
+            st.markdown("Tonight's scan would escalate this ticker: " + "; ".join(decision.reasons) + ".")
+        else:
+            st.markdown(f"### {ticker}: nothing material detected")
+            st.markdown(
+                f"Tonight's scan would not escalate this ticker - material-event probability "
+                f"{screen['material_event']:.2f} is below {threshold}, and the price move is under "
+                f"{DEFAULT_POLICY.price_move_threshold_pct:.0f}%."
+            )
+
+        cols = st.columns(3)
+        cols[0].metric(
+            "Material event", f"{screen['material_event']:.2f}",
+            help=f"Jev's probability that the headlines report an earnings surprise, guidance change, M&A, "
+                 f"major litigation, regulatory action or executive change. Escalates at {threshold}.",
+        )
+        cols[1].metric(
+            "News tone", screen["sentiment"],
+            help=f"Jev's confidence in this call: {screen['sentiment_confidence']:.2f}",
+        )
+        move = result["quote"].get("pct_change")
+        cols[2].metric("Today's move", f"{move:+.2f}%" if move is not None else "n/a")
+
+        about = headlines_about(result["news"]["headlines"], ticker, result["news"].get("company_name"))
+        if about:
+            st.markdown("**Headlines about the company**")
+            for h in about[:3]:
+                st.markdown(f"- [{_md(h['headline'])}]({h['url']}) - {h['source']}, {h['published_at'][:10]}")
+        others = len(result["news"]["headlines"]) - len(about)
+        cost = f"${result['cost_usd']:.5f}" if result["cost_usd"] else "under $0.0001"
+        st.caption(
+            f"Screened by Jev ({screen['model']}) in {result['seconds']:.1f} s for {cost} (estimated), "
+            f"reading {len(result['news']['headlines'])} recent headlines"
+            + (f", {others} of them about other companies (the nightly scan's input, kept as-is)." if others else ".")
+        )
+
+
 tab_brief, tab_scan = st.tabs(["Single ticker", "Daily Scan"])
 
 with tab_brief:
@@ -293,15 +381,41 @@ with tab_brief:
             "Set these in your local .env file, or in Streamlit secrets when deployed."
         )
 
+    st.caption(
+        "Step 1 is a cheap Jev screen - the same check the nightly scan runs. "
+        "Step 2, the full multi-agent research brief, runs only if you ask for it."
+    )
     with st.form("ticker_form"):
-        ticker_input = st.text_input("Stock ticker", placeholder="AAPL")
-        submitted = st.form_submit_button("Research")
+        ticker_input = st.text_input("Stock ticker or company name", placeholder="AAPL")
+        submitted = st.form_submit_button("Screen")
 
     if submitted:
-        ticker = (ticker_input or "").strip()
-        if not ticker:
+        query = (ticker_input or "").strip()
+        st.session_state.pop("screen_result", None)
+        st.session_state.pop("brief", None)
+        if not query:
             st.warning("Please enter a ticker symbol.")
         else:
+            with st.spinner("Screening with Jev..."):
+                st.session_state["screen_result"] = _screen_single(query)
+
+    result = st.session_state.get("screen_result")
+    if result:
+        _render_screen(result)
+        ticker = result["ticker"]
+        escalate = result["decision"] is not None and result["decision"].escalate
+        with st.container(horizontal=True, vertical_alignment="center"):
+            want_brief = st.button(
+                f"Get the full research brief ({BRIEF_COST_HINT})",
+                type="primary" if escalate else "secondary",
+                disabled="brief" in st.session_state,
+            )
+            st.caption(
+                "Recommended - the screen flagged this ticker."
+                if escalate
+                else "Nothing was flagged, but you can still run the full brief."
+            )
+        if want_brief:
             progress = {"research_done": False, "sentiment_done": False, "analyst_started": False}
             brief = None
 
@@ -324,6 +438,7 @@ with tab_brief:
                         status.update(label="Synthesizing research brief...")
                         status.write("✍️ Analyst Agent: synthesizing brief")
 
+                started = time.perf_counter()
                 try:
                     brief = asyncio.run(run_research_brief(ticker, on_event=on_event))
                 except Exception as exc:
@@ -335,20 +450,33 @@ with tab_brief:
                     )
                 else:
                     status.update(label="Research brief ready", state="complete")
+                    st.session_state["brief"] = (brief, time.perf_counter() - started)
+            if "brief" in st.session_state:
+                st.rerun()  # redraw with the button disabled and the brief below
 
-            if brief is not None:
-                if not brief.research.get("success", True):
-                    st.warning(f"Quantitative data unavailable for {brief.ticker}: {brief.research.get('error')}")
-                if not brief.sentiment.get("success", True):
-                    st.warning(f"Sentiment data unavailable for {brief.ticker}: {brief.sentiment.get('error')}")
+        if "brief" in st.session_state:
+            brief, seconds = st.session_state["brief"]
+            if not brief.research.get("success", True):
+                st.warning(f"Quantitative data unavailable for {brief.ticker}: {brief.research.get('error')}")
+            if not brief.sentiment.get("success", True):
+                st.warning(f"Sentiment data unavailable for {brief.ticker}: {brief.sentiment.get('error')}")
 
-                st.markdown(brief.brief_markdown)
+            st.markdown(_md(brief.brief_markdown))
+            if brief.usage:
+                ratio = (
+                    f" - about {brief.usage.cost_usd / result['cost_usd']:,.0f}x the cost of the screen"
+                    if result["cost_usd"]
+                    else ""
+                )
+                st.caption(
+                    f"Brief generated in {seconds:.0f} s for ~${brief.usage.cost_usd:.4f} of Gemini (estimated){ratio}."
+                )
 
-                with st.expander("Research Agent output (raw)"):
-                    st.json(brief.research)
+            with st.expander("Research Agent output (raw)"):
+                st.json(brief.research)
 
-                with st.expander("Sentiment Agent output (raw)"):
-                    st.json(brief.sentiment)
+            with st.expander("Sentiment Agent output (raw)"):
+                st.json(brief.sentiment)
 
 
 with tab_scan:

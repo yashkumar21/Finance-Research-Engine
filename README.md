@@ -201,11 +201,12 @@ are the ones to quote; the development set is shown for comparison.
 | Escalations that were labeled events (precision) | 26% | **27-31%** |
 | Gemini briefs avoided vs. briefing every ticker | 74% | **70-74%** |
 
-Held-out ranges span four Jev runs on the same headlines: the nightly scan's answers (27% escalated,
+Held-out ranges span five Jev runs on the same headlines: the nightly scan's answers (27% escalated,
 0 failures), a fresh re-screen (`eval/results/compare-2026-09-26T123753Z.md`: 30% escalated, of
 which 4 tickers were Jev errors escalated to be safe), a re-run through Requesty (28%, 0 failures) and
-one through TypeSafe's own API (`eval/results/compare-2026-09-27T114225Z.md`: 26%, 0 failures). Every
-run caught all 8 events; Jev's answers vary slightly between runs.
+two through TypeSafe's own API (`eval/results/compare-2026-09-27T114225Z.md`: 26%;
+`eval/results/compare-2026-09-27T203931Z.md`: 27%; 0 failures). Every run caught all 8 events; Jev's
+answers vary slightly between runs.
 
 On the first full S&P 500 scan the policy escalates 108 of 503 tickers (21%), so a nightly run needs
 ~108 briefs instead of 503.
@@ -221,16 +222,15 @@ Both models judged identical cached headlines; accuracy is against the hand labe
 
 | | Jev | Gemini (Sentiment Agent) |
 |---|---|---|
-| Accuracy, held-out set (100) | 70-73% | not measured* |
+| **Accuracy, held-out set** (100; 99 compared by both) | **71%** (70-73% across runs) | **70%** |
 | Accuracy, development set (93 screened) | 73% | 71% |
-| Cost per ticker | $0.0000475 (exact, provider-reported) | ~$0.0021 (estimated) |
-| Median latency | ~0.6 s | ~3.4 s |
+| Jev-Gemini agreement, held-out | 74% | |
+| Cost per ticker | ~$0.000044-0.0000475 | ~$0.0020 (estimated) - **45x Jev** |
+| Median latency | ~0.5-0.6 s | ~3.5 s - **~6.5x Jev** |
 
-Jev answers sentiment, material event and needs-analysis in one call at ~1/45th the cost of the
-Gemini sentiment step alone.
-
-\* The held-out Gemini run was stopped at 17/100: the free tier was answering at ~1 ticker/minute.
-`python -m eval.compare --snapshot eval/data/snapshot-2026-09-26T054846Z.json` completes it.
+On data neither was tuned on, Jev matches the Gemini Sentiment Agent's accuracy at ~1/45th of the
+cost - and answers material event and needs-analysis in the same call
+(`eval/results/compare-2026-09-27T203931Z.md`).
 
 ### Scale
 

@@ -80,8 +80,8 @@ HELD_OUT = {
     "caught": 8,
     "escalation": "26-30%",
     "precision": "27-31%",
-    "runs": 4,
-    "report": "eval/results/compare-2026-09-27T114225Z.md",
+    "runs": 5,
+    "report": "eval/results/compare-2026-09-27T203931Z.md",
 }
 
 METHODOLOGY_MD = f"""

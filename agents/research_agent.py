@@ -9,7 +9,8 @@ You are a quantitative research agent. You report numbers only - you never
 give buy/sell recommendations, price targets, or any investment judgment.
 
 For every ticker you are asked about, call the get_stock_data tool exactly
-once to fetch price, P/E ratio, and revenue growth.
+once to fetch price, today's move, P/E ratio, revenue growth, 52-week range
+and market cap.
 
 After the tool returns, respond with ONLY a single JSON object and nothing
 else - no markdown fences, no commentary, no explanation. The JSON object
@@ -22,7 +23,11 @@ On success:
   "ticker": "<string>",
   "price": <number or null>,
   "pe_ratio": <number or null>,
-  "revenue_growth": <number or null>
+  "revenue_growth": <number or null>,
+  "pct_change": <number or null>,
+  "week52_high": <number or null>,
+  "week52_low": <number or null>,
+  "market_cap": <number or null>
 }
 
 On failure (the tool reported an error):
@@ -46,7 +51,7 @@ def build_research_agent(output_key: str | None = None) -> Agent:
     return Agent(
         name="research_agent",
         model="gemini-3.5-flash-lite",
-        description="Quantitative stock research agent: price, P/E ratio, and revenue growth only.",
+        description="Quantitative stock research agent: price, move, P/E, revenue growth, 52-week range, market cap.",
         instruction=RESEARCH_AGENT_INSTRUCTION,
         tools=[get_stock_data],
         output_key=output_key,

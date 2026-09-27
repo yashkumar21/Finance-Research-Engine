@@ -17,6 +17,7 @@ from google.genai import types
 from google.adk.runners import InMemoryRunner
 
 from agents.analyst_agent import analyst_agent
+from agents.figures import format_as_of, format_figures_for_analyst, format_key_figures, insert_key_figures
 from agents.orchestrator import run_research_brief
 from tools.stock_data_tool import get_stock_data
 
@@ -34,6 +35,19 @@ def _number_appears(text: str, value: float) -> bool:
     return any(c in text for c in candidates)
 
 
+def _analyst_state(ticker: str, generated_at: str, research_data: dict, sentiment_data: dict) -> dict:
+    """The state the pipeline's key-figures step would hand the Analyst."""
+    return {
+        "ticker": ticker,
+        "generated_at": generated_at,
+        "as_of": format_as_of(generated_at),
+        "research_data": json.dumps(research_data),
+        "sentiment_data": json.dumps(sentiment_data),
+        "figures_text": format_figures_for_analyst(research_data),
+        "key_figures": format_key_figures(research_data),
+    }
+
+
 async def _run_analyst_with_seeded_state(state: dict) -> str:
     runner = InMemoryRunner(agent=analyst_agent, app_name=APP_NAME)
     session = await runner.session_service.create_session(app_name=APP_NAME, user_id=USER_ID, state=state)
@@ -47,7 +61,7 @@ async def _run_analyst_with_seeded_state(state: dict) -> str:
                     final_text = part.text
 
     assert final_text, "Analyst agent produced no final text response"
-    return final_text
+    return insert_key_figures(final_text, state["key_figures"])
 
 
 def _assert_baseline_constraints(brief_text: str):
@@ -82,19 +96,14 @@ async def test_analyst_cites_seeded_numbers_not_hallucinated_ones():
     }
 
     brief_text = await _run_analyst_with_seeded_state(
-        {
-            "ticker": "ZZZZTEST",
-            "generated_at": generated_at,
-            "research_data": json.dumps(research_data),
-            "sentiment_data": json.dumps(sentiment_data),
-        }
+        _analyst_state("ZZZZTEST", generated_at, research_data, sentiment_data)
     )
 
     _assert_baseline_constraints(brief_text)
     assert _number_appears(brief_text, 123.45)
     assert _number_appears(brief_text, 67.89)
     assert "Widgets Inc posts record quarter" in brief_text
-    assert generated_at in brief_text or generated_at[:10] in brief_text
+    assert format_as_of(generated_at) in brief_text
 
 
 @pytest.mark.asyncio
@@ -113,12 +122,7 @@ async def test_analyst_reports_unavailable_data_without_inventing_numbers():
     }
 
     brief_text = await _run_analyst_with_seeded_state(
-        {
-            "ticker": "ZZZZTEST",
-            "generated_at": generated_at,
-            "research_data": json.dumps(research_data),
-            "sentiment_data": json.dumps(sentiment_data),
-        }
+        _analyst_state("ZZZZTEST", generated_at, research_data, sentiment_data)
     )
 
     _assert_baseline_constraints(brief_text)

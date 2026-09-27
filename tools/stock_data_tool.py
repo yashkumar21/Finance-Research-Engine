@@ -150,11 +150,16 @@ def get_quote_snapshot(ticker: str) -> dict:
         }
 
 
+def _number(value) -> float | None:
+    return float(value) if isinstance(value, (int, float)) else None
+
+
 def get_stock_data(ticker: str) -> dict:
     """Fetch quantitative stock data for a given ticker symbol or company name.
 
-    Retrieves the latest price, trailing P/E ratio, and year-over-year revenue
-    growth rate using the Finnhub API. If the input isn't a literal ticker
+    Retrieves the latest price and today's move, trailing P/E ratio,
+    year-over-year revenue growth, 52-week range and market cap using the
+    Finnhub API (one quote call and one metrics call). If the input isn't a literal ticker
     (e.g. "Apple" instead of "AAPL"), falls back to a symbol search and
     resolves it before fetching data. This tool performs no qualitative
     analysis and makes no buy/sell recommendations - it only returns raw
@@ -172,6 +177,9 @@ def get_stock_data(ticker: str) -> dict:
             pe_ratio (float or None): trailing P/E ratio, if available
             revenue_growth (float or None): YoY revenue growth rate (e.g. 0.0868
                 for 8.68%), if available
+            pct_change (float or None): today's move in percent (e.g. -2.31)
+            week52_high, week52_low (float or None): 52-week price range
+            market_cap (float or None): market capitalization in USD
         On failure (invalid ticker/name, no data found, or a network/API error), a
         dict with keys:
             success (bool): False
@@ -208,6 +216,7 @@ def get_stock_data(ticker: str) -> dict:
 
         pe_ratio = metric.get("peTTM")
         revenue_growth = metric.get("revenueGrowthTTMYoy")
+        market_cap_millions = metric.get("marketCapitalization")
 
         return {
             "success": True,
@@ -216,6 +225,13 @@ def get_stock_data(ticker: str) -> dict:
             "pe_ratio": float(pe_ratio) if isinstance(pe_ratio, (int, float)) else None,
             "revenue_growth": float(revenue_growth) / 100
             if isinstance(revenue_growth, (int, float))
+            else None,
+            "pct_change": _number(quote.get("dp")),
+            "week52_high": _number(metric.get("52WeekHigh")),
+            "week52_low": _number(metric.get("52WeekLow")),
+            # Finnhub reports market cap in millions.
+            "market_cap": market_cap_millions * 1_000_000
+            if isinstance(market_cap_millions, (int, float))
             else None,
         }
 

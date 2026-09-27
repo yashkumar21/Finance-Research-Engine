@@ -14,7 +14,10 @@ def _assert_structure(result: dict):
     assert "ticker" in result
     assert isinstance(result["ticker"], str)
     if result["success"]:
-        assert set(result.keys()) == {"success", "ticker", "price", "pe_ratio", "revenue_growth"}
+        assert set(result.keys()) == {
+            "success", "ticker", "price", "pe_ratio", "revenue_growth",
+            "pct_change", "week52_high", "week52_low", "market_cap",
+        }
         assert isinstance(result["price"], float)
         assert result["pe_ratio"] is None or isinstance(result["pe_ratio"], float)
         assert result["revenue_growth"] is None or isinstance(result["revenue_growth"], float)

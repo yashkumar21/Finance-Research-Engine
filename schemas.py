@@ -16,6 +16,10 @@ class StockData(BaseModel):
     price: Optional[float] = None
     pe_ratio: Optional[float] = None
     revenue_growth: Optional[float] = None
+    pct_change: Optional[float] = None
+    week52_high: Optional[float] = None
+    week52_low: Optional[float] = None
+    market_cap: Optional[float] = None
 
 
 class StockDataError(BaseModel):

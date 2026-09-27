@@ -20,6 +20,12 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types
 
 from agents.analyst_agent import build_analyst_agent
+from agents.figures import (
+    build_key_figures_agent,
+    correct_citation_dates,
+    format_as_of,
+    insert_key_figures,
+)
 from agents.research_agent import build_research_agent
 from agents.sentiment_agent import build_sentiment_agent
 from pricing import gemini_cost
@@ -30,7 +36,10 @@ APP_NAME = "finance_research_engine_orchestrator"
 
 
 def build_pipeline() -> SequentialAgent:
-    """Build a fresh Research || Sentiment -> Analyst pipeline.
+    """Build a fresh Research || Sentiment -> key figures -> Analyst pipeline.
+
+    The key-figures step is plain Python, not a model: it formats the
+    Research Agent's numbers so the Analyst only ever quotes them.
 
     Fresh agent instances every call (via the build_* factories) - ADK
     forbids attaching the same agent object as a sub-agent of more than one
@@ -48,7 +57,7 @@ def build_pipeline() -> SequentialAgent:
 
     return SequentialAgent(
         name="finance_research_pipeline",
-        sub_agents=[parallel_step, analyst_step],
+        sub_agents=[parallel_step, build_key_figures_agent(), analyst_step],
     )
 
 
@@ -84,7 +93,7 @@ async def run_research_brief(
     session = await runner.session_service.create_session(
         app_name=APP_NAME,
         user_id=user_id,
-        state={"ticker": ticker, "generated_at": generated_at},
+        state={"ticker": ticker, "generated_at": generated_at, "as_of": format_as_of(generated_at)},
     )
 
     message = types.Content(role="user", parts=[types.Part(text=f"Research {ticker}")])
@@ -118,7 +127,7 @@ async def run_research_brief(
         ticker=ticker,
         research=research_data,
         sentiment=sentiment_data,
-        brief_markdown=final_text,
+        brief_markdown=correct_citation_dates(insert_key_figures(final_text, state["key_figures"]), sentiment_data),
         usage=Usage(
             input_tokens=input_tokens,
             output_tokens=output_tokens,

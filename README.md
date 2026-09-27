@@ -5,7 +5,7 @@ plus a cheap screening layer that makes it practical to run nightly over the who
 
 - **Research briefs**: an Orchestrator runs a quantitative Research Agent and a qualitative Sentiment
   Agent in parallel, then a synthesis-only Analyst Agent combines both into a markdown brief.
-- **Nightly scan**: [Jev](https://vercel.com/ai-gateway) (TypeSafe AI's "System 1" decision model)
+- **Nightly scan**: [Jev](https://www.requesty.ai/model/typesafe/jev) (TypeSafe AI's "System 1" decision model)
   screens every ticker in one cheap call, and a deterministic policy sends only tickers with a likely
   material event to the full Gemini pipeline.
 - **Evaluation**: Jev vs. Gemini on identical cached headlines, scored against hand labels, with the
@@ -64,7 +64,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # then fill in GOOGLE_API_KEY (https://aistudio.google.com/apikey),
                         # FINNHUB_API_KEY (https://finnhub.io/register, free tier, 60 calls/min)
-                        # and AI_GATEWAY_API_KEY (https://vercel.com/ai-gateway, for Jev)
+                        # and REQUESTY_API_KEY (https://app.requesty.ai/api-keys, for Jev)
 streamlit run app.py
 ```
 
@@ -161,6 +161,13 @@ runs a missed job when the Mac wakes, but not if it was shut down. On Linux, the
 
 ## Results
 
+> **Provider change.** The results below were first measured with Jev served through Vercel AI Gateway
+> (`typesafe-ai/jev`, through 2026-09-26). Vercel then restricted Jev to paid credits, and the code now
+> calls `typesafe/jev-1.13.0` through Requesty with the same questions. Re-running the locked policy on
+> the same held-out labels there gave the same result: 8/8 events at 28% escalation, 29% precision,
+> 70% sentiment accuracy, 0 failures, $0.0041 for all 100 tickers
+> (`eval/results/compare-2026-09-27T070245Z.md`).
+
 ### Screening: held-out test set
 
 The escalation policy was chosen on one hand-labeled set, committed, and only then evaluated on a
@@ -176,9 +183,10 @@ are the ones to quote; the development set is shown for comparison.
 | Escalations that were labeled events (precision) | 26% | **27-30%** |
 | Gemini briefs avoided vs. briefing every ticker | 74% | **70-73%** |
 
-Held-out ranges span two Jev runs on the same headlines: the nightly scan's answers (27% escalated,
-0 failures) and a fresh re-screen (`eval/results/compare-2026-09-26T123753Z.md`: 30% escalated, of
-which 4 tickers were Jev errors escalated to be safe). Jev's answers vary slightly between runs.
+Held-out ranges span three Jev runs on the same headlines: the nightly scan's answers (27% escalated,
+0 failures), a fresh re-screen (`eval/results/compare-2026-09-26T123753Z.md`: 30% escalated, of
+which 4 tickers were Jev errors escalated to be safe), and a re-run through Requesty (28%, 0 failures).
+Jev's answers vary slightly between runs.
 
 On the first full S&P 500 scan the policy escalates 108 of 503 tickers (21%), so a nightly run needs
 ~108 briefs instead of 503.
@@ -196,7 +204,7 @@ Both models judged identical cached headlines; accuracy is against the hand labe
 |---|---|---|
 | Accuracy, held-out set (100) | 70-72% | not measured* |
 | Accuracy, development set (93 screened) | 73% | 71% |
-| Cost per ticker | $0.0000475 (exact, gateway-reported) | ~$0.0021 (estimated) |
+| Cost per ticker | $0.0000475 (exact, provider-reported) | ~$0.0021 (estimated) |
 | Median latency | ~0.6 s | ~3.4 s |
 
 Jev answers sentiment, material event and needs-analysis in one call at ~1/45th the cost of the
@@ -243,7 +251,7 @@ not the models.
 - **Single labeler.** All labels are one person's judgement; there's no inter-annotator agreement.
 - **Headlines only.** Jev sees ~7 days of headlines and today's move - no filings, transcripts or prices
   beyond the quote. Week-old events can re-trigger escalation.
-- **Estimated Gemini cost.** Jev's cost is exact (reported per call by Vercel AI Gateway); Gemini's is
+- **Estimated Gemini cost.** Jev's cost is exact (reported per call by the provider); Gemini's is
   token counts x list price (`pricing.py`).
 - **Early-access model.** Jev returned intermittent 5xx errors in its first weeks (retried; failures
   escalate rather than drop a ticker), and its behaviour may change between versions - every result

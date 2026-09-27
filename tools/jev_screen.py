@@ -1,23 +1,33 @@
-"""Jev (TypeSafe AI) screening tool, called through Vercel AI Gateway.
+"""Jev (TypeSafe AI) screening tool, called through Requesty.
 
 Jev is a "System 1" decision model: instead of generating text it answers a
 fixed set of typed questions about a state directly, as probabilities, in a
 single call. The screener uses it to cheaply decide which tickers deserve a
 full (expensive) Gemini research brief.
+
+Requesty serves Jev on its OpenAI-compatible chat endpoint: the state goes in
+a single user message, the questions in a "questions" response_format, and
+the answers come back as JSON in the assistant message. Until 2026-09-26 this
+called Jev through Vercel AI Gateway (/systemone, model typesafe-ai/jev);
+Vercel then restricted Jev to paid credits. Eval results recorded before that
+date come from the Vercel setup.
 """
 
+import json
 import os
 import time
 
 import requests
 from dotenv import load_dotenv
 
+from pricing import jev_cost
 from schemas import ScreenResult, Usage
 
 load_dotenv()
 
-GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/typesafe"
-JEV_MODEL = "typesafe-ai/jev"
+CHAT_URL = "https://router.requesty.ai/v1/chat/completions"
+# Pinned rather than typesafe/jev-latest so results stay comparable across runs.
+JEV_MODEL = "typesafe/jev-1.13.0"
 MAX_RETRIES = 4
 RETRY_BACKOFF_SECONDS = 1.0
 # Rate limits plus transient upstream errors - Jev returned frequent 503s in
@@ -70,7 +80,7 @@ def build_state(ticker: str, quote: dict, news: dict) -> dict:
 
 
 def _post_with_retry(payload: dict, api_key: str) -> tuple[requests.Response, int, float]:
-    """POST to /systemone, retrying rate limits and transient server errors.
+    """POST to Requesty, retrying rate limits and transient server errors.
 
     Returns (response, attempts made, latency in ms of the final attempt) -
     latency excludes failed attempts and backoff, so it reflects the model's
@@ -79,7 +89,7 @@ def _post_with_retry(payload: dict, api_key: str) -> tuple[requests.Response, in
     for attempt in range(1, MAX_RETRIES + 2):
         started = time.perf_counter()
         resp = requests.post(
-            f"{GATEWAY_BASE_URL}/v1/systemone",
+            CHAT_URL,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
             timeout=30,
@@ -106,21 +116,22 @@ def screen_ticker(ticker: str, quote: dict, news: dict, questions: dict = QUESTI
         On success, a ScreenResult dict: Jev's sentiment choice with its
         probabilities and confidence, material_event and needs_analysis
         probabilities (0-1), the model that answered, wall-clock latency, and
-        usage with the exact per-call cost reported by the gateway.
+        usage with the per-call cost (Requesty's if it reports one, otherwise
+        tokens x Jev's list price, flagged as an estimate).
         On failure (missing key, network/API/rate-limit error, or an
         unexpected response shape), a dict with keys success (False),
         ticker, and error.
     """
     ticker = (ticker or "").strip().upper()
 
-    api_key = os.environ.get("AI_GATEWAY_API_KEY")
+    api_key = os.environ.get("REQUESTY_API_KEY")
     if not api_key:
-        return {"success": False, "ticker": ticker, "error": "AI_GATEWAY_API_KEY is not set."}
+        return {"success": False, "ticker": ticker, "error": "REQUESTY_API_KEY is not set."}
 
     payload = {
         "model": JEV_MODEL,
-        "state": build_state(ticker, quote, news),
-        "questions": questions,
+        "messages": [{"role": "user", "content": json.dumps(build_state(ticker, quote, news))}],
+        "response_format": {"type": "questions", "questions": questions},
     }
 
     try:
@@ -129,8 +140,8 @@ def screen_ticker(ticker: str, quote: dict, news: dict, questions: dict = QUESTI
         if resp.status_code == 429:
             return {"success": False, "ticker": ticker, "error": "Jev rate limit exceeded after retries."}
         if not resp.ok:
-            # TypeSafe errors are {"message", "error_type"}; gateway-level
-            # errors (auth, billing) are {"error": {"message", "type"}}.
+            # OpenAI-style errors are {"error": {"message", ...}}; some
+            # gateways return a flat {"message"}.
             try:
                 error_body = resp.json()
                 nested = error_body.get("error") if isinstance(error_body.get("error"), dict) else {}
@@ -144,9 +155,10 @@ def screen_ticker(ticker: str, quote: dict, news: dict, questions: dict = QUESTI
             }
 
         body = resp.json()
-        answers = body["answers"]
+        answers = json.loads(body["choices"][0]["message"]["content"])
         usage = body.get("usage") or {}
-        gateway = (body.get("provider_metadata") or {}).get("gateway") or {}
+        input_tokens = int(usage.get("prompt_tokens") or 0)
+        reported_cost = usage.get("cost")
 
         result = ScreenResult(
             ticker=ticker,
@@ -159,12 +171,11 @@ def screen_ticker(ticker: str, quote: dict, news: dict, questions: dict = QUESTI
             latency_ms=round(latency_ms, 1),
             attempts=attempts,
             usage=Usage(
-                input_tokens=int(usage.get("input_tokens") or 0),
-                output_tokens=int(usage.get("output_tokens") or 0),
-                # marketCost is the list price of the call; cost is what was
-                # billed, which is 0 while free gateway credits cover it.
-                cost_usd=float(gateway.get("marketCost") or gateway.get("cost") or 0),
-                billed_cost_usd=float(gateway.get("cost") or 0),
+                input_tokens=input_tokens,
+                output_tokens=int(usage.get("completion_tokens") or 0),
+                cost_usd=float(reported_cost) if reported_cost is not None else jev_cost(input_tokens),
+                cost_is_estimate=reported_cost is None,
+                billed_cost_usd=float(reported_cost) if reported_cost is not None else None,
             ),
         )
         return result.model_dump()

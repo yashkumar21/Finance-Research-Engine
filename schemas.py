@@ -60,7 +60,7 @@ class SentimentAssessmentError(BaseModel):
 class Usage(BaseModel):
     """Token counts and cost for one or more model calls.
 
-    cost_usd is exact for Jev (reported per call by Vercel AI Gateway) and
+    cost_usd is exact for Jev when the provider reports it per call and
     an estimate for Gemini (token counts x list price, see pricing.py).
     """
 
@@ -68,7 +68,8 @@ class Usage(BaseModel):
     output_tokens: int = 0
     cost_usd: float = 0.0
     cost_is_estimate: bool = False
-    # What was actually charged - 0 while Vercel's free credits cover Jev.
+    # What the provider reported charging, when it reports it. Results from
+    # the earlier Vercel setup recorded 0 here while free credits applied.
     # cost_usd is the list price, which is what cost comparisons use.
     billed_cost_usd: Optional[float] = None
 

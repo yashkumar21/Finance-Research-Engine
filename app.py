@@ -37,7 +37,7 @@ def _resolve_secret(key: str):
 
 # Must happen before importing agents.orchestrator, so the tools/agents
 # (which read these via os.environ / their own load_dotenv()) see them.
-for _key in ("GOOGLE_API_KEY", "FINNHUB_API_KEY", "AI_GATEWAY_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI"):
+for _key in ("GOOGLE_API_KEY", "FINNHUB_API_KEY", "REQUESTY_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI"):
     _value = _resolve_secret(_key)
     if _value:
         os.environ[_key] = _value
@@ -283,7 +283,7 @@ with tab_brief:
 
 
 with tab_scan:
-    missing_scan_keys = [k for k in ("AI_GATEWAY_API_KEY", "FINNHUB_API_KEY") if not os.environ.get(k)]
+    missing_scan_keys = [k for k in ("REQUESTY_API_KEY", "FINNHUB_API_KEY") if not os.environ.get(k)]
     if missing_scan_keys:
         st.warning(f"Live scans need {', '.join(missing_scan_keys)}.")
     _render_live_scan()

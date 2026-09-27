@@ -1,7 +1,7 @@
 """Tests for tools.jev_screen.screen_ticker.
 
-Real-network tests against Jev via Vercel AI Gateway, matching the repo's
-no-mocking convention; skipped when AI_GATEWAY_API_KEY is not set. Headlines
+Real-network tests against Jev via Requesty, matching the repo's
+no-mocking convention; skipped when REQUESTY_API_KEY is not set. Headlines
 are hand-written so the expected direction of each answer is unambiguous.
 """
 
@@ -16,7 +16,7 @@ from tools.jev_screen import screen_ticker
 load_dotenv()
 
 pytestmark = pytest.mark.skipif(
-    not os.environ.get("AI_GATEWAY_API_KEY"), reason="AI_GATEWAY_API_KEY is not set"
+    not os.environ.get("REQUESTY_API_KEY"), reason="REQUESTY_API_KEY is not set"
 )
 
 
@@ -76,6 +76,6 @@ def test_no_news_is_valid():
 
 
 def test_missing_key_returns_structured_error(monkeypatch):
-    monkeypatch.delenv("AI_GATEWAY_API_KEY")
+    monkeypatch.delenv("REQUESTY_API_KEY")
     result = screen_ticker("TEST", {"pct_change": 0.0}, _news())
-    assert result == {"success": False, "ticker": "TEST", "error": "AI_GATEWAY_API_KEY is not set."}
+    assert result == {"success": False, "ticker": "TEST", "error": "REQUESTY_API_KEY is not set."}

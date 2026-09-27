@@ -58,7 +58,7 @@ from agents.orchestrator import (  # noqa: E402
 )
 from schemas import ScanReport  # noqa: E402
 from screener.policy import DEFAULT_POLICY, decide  # noqa: E402
-from screener.scan import list_reports, run_scan, save_report  # noqa: E402
+from screener.scan import list_reports, load_company_names, run_scan, save_report  # noqa: E402
 from tools.jev_screen import screen_ticker  # noqa: E402
 from tools.news_tool import get_company_news, headlines_about  # noqa: E402
 from tools.stock_data_tool import get_quote_snapshot, resolve_ticker  # noqa: E402
@@ -158,14 +158,21 @@ def _usd(amount: float) -> str:
     return f"${amount:.4f}" if amount >= 0.001 else f"${amount:.6f}"
 
 
+@st.cache_data
+def _company_names() -> dict[str, str]:
+    return load_company_names()
+
+
 def _results_table(report: ScanReport) -> pd.DataFrame:
     """One row per ticker, escalated first and strongest signal first - what
     a reviewer looks at. needs_analysis is left out: the policy doesn't use it."""
+    names = _company_names()
     rows = []
     for r in report.results:
         s = r.screen
         rows.append({
             "Ticker": r.ticker,
+            "Company": r.company_name or names.get(r.ticker, ""),
             "Escalate": "yes" if r.decision.escalate else "no",
             "Reasons": "; ".join(r.decision.reasons) or ("" if s else r.screen_error),
             "Material event": s.material_event if s else None,
@@ -242,6 +249,8 @@ def _render_report(report: ScanReport, reports: list[Path]) -> None:
         "Show", ["All", "Escalated", "Not escalated"], default="All", key="scan_filter"
     ) or "All"
     table = _results_table(report)
+    if not any(r.brief or r.brief_error for r in report.results):
+        table = table.drop(columns="Brief")  # always empty on Jev-only scans
     if show != "All":
         table = table[table["Escalate"] == ("yes" if show == "Escalated" else "no")]
 
@@ -256,7 +265,7 @@ def _render_report(report: ScanReport, reports: list[Path]) -> None:
             "Material event": st.column_config.ProgressColumn(
                 **probability, help="P(headlines report a material event); escalates at 0.6"
             ),
-            "Reasons": st.column_config.TextColumn(width="large", help="Why the policy escalated this ticker"),
+            "Reasons": st.column_config.TextColumn(width="medium", help="Why the policy escalated this ticker"),
         },
     )
 

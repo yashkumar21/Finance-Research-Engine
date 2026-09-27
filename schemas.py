@@ -117,6 +117,7 @@ class Decision(BaseModel):
 
 class TickerScanResult(BaseModel):
     ticker: str
+    company_name: Optional[str] = None
     price: Optional[float] = None
     pct_change: Optional[float] = None
     headline_count: int = 0

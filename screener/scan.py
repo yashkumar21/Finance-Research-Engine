@@ -8,6 +8,7 @@ Jev calls and can be re-scored against a different policy later.
 """
 
 import asyncio
+import csv
 import os
 import statistics
 from datetime import datetime, timezone
@@ -55,6 +56,18 @@ def load_universe(name: str) -> list[str]:
     return [line.strip().upper() for line in lines if line.strip() and not line.startswith("#")]
 
 
+def load_company_names() -> dict[str, str]:
+    """Ticker -> company name from data/universes/*_names.csv, for display.
+
+    Scan reports from before names were recorded fall back to this list.
+    """
+    names = {}
+    for path in UNIVERSES_DIR.glob("*_names.csv"):
+        rows = (line for line in path.read_text().splitlines() if not line.startswith("#"))
+        names.update({row["ticker"]: row["name"] for row in csv.DictReader(rows)})
+    return names
+
+
 def save_report(report: ScanReport) -> Path:
     """Write report to runs/scan-<timestamp>.json and return the path."""
     RUNS_DIR.mkdir(exist_ok=True)
@@ -85,6 +98,7 @@ async def _screen_one(ticker: str, finnhub: TokenBucket, config: PolicyConfig) -
 
     return TickerScanResult(
         ticker=ticker,
+        company_name=news.get("company_name"),
         price=quote.get("price"),
         pct_change=quote.get("pct_change"),
         headline_count=len(news.get("headlines", [])),

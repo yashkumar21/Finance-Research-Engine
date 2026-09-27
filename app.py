@@ -48,7 +48,7 @@ import pandas as pd  # noqa: E402
 
 import re  # noqa: E402
 import time  # noqa: E402
-from datetime import datetime  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
 
 from agents.orchestrator import (  # noqa: E402
     BRIEF_ATTEMPTS,
@@ -563,6 +563,24 @@ def _latest_index_report() -> ScanReport | None:
     return None
 
 
+# The nightly job runs Tue-Sat at 03:00 IST, so the longest normal gap is
+# Saturday to Tuesday - 3 days. Past this, a run was probably missed.
+STALE_SCAN_HOURS = 84
+
+
+def _scan_age(finished_at: str) -> tuple[str, bool]:
+    """('2 days ago', is_stale) for a scan's finish time."""
+    hours = (datetime.now(timezone.utc) - datetime.fromisoformat(finished_at)).total_seconds() / 3600
+    if hours < 1:
+        age = "just now"
+    elif hours < 24:
+        age = f"{hours:.0f} hour{'s' if round(hours) != 1 else ''} ago"
+    else:
+        days = hours / 24
+        age = f"{days:.0f} day{'s' if round(days) != 1 else ''} ago"
+    return age, hours > STALE_SCAN_HOURS
+
+
 def _render_last_scan_summary() -> None:
     """The result up front: what the last nightly scan did, and why it can be trusted."""
     report = _latest_index_report()
@@ -573,7 +591,12 @@ def _render_last_scan_summary() -> None:
     universe = {"sp500": "S&P 500", "sp100": "S&P 100"}[report.universe]
     with st.container(border=True):
         cols = st.columns(4)
-        cols[0].metric("Last nightly scan", when, help=f"{universe}, Jev screening only")
+        age, stale = _scan_age(report.finished_at)
+        cols[0].metric(
+            "Last nightly scan", when, delta=age, delta_color="inverse" if stale else "off", delta_arrow="off",
+            help=f"{universe}, Jev screening only. The scan runs Tuesday-Saturday at 03:00 IST, after each "
+                 "US trading day.",
+        )
         cols[1].metric("Tickers screened", report.tickers_scanned)
         cols[2].metric("Flagged for a full brief", report.tickers_escalated)
         cols[3].metric(
@@ -585,6 +608,11 @@ def _render_last_scan_summary() -> None:
             f"set the same policy caught {HELD_OUT['caught']} of {HELD_OUT['events']} material events. "
             "Details in the Daily Scan tab."
         )
+        if stale:
+            st.warning(
+                f"The latest scan is {age} - the nightly job may have missed a run (the Mac asleep or "
+                "shut down, or an API problem). Its log is at ~/Library/Logs/finance-research-engine-scan.log."
+            )
 
 
 _render_last_scan_summary()

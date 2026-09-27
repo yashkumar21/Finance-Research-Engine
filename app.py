@@ -43,7 +43,6 @@ for _key in ("GOOGLE_API_KEY", "FINNHUB_API_KEY", "TYPESAFE_API_KEY", "GOOGLE_GE
         os.environ[_key] = _value
 
 import asyncio  # noqa: E402
-import statistics  # noqa: E402
 
 import pandas as pd  # noqa: E402
 
@@ -131,16 +130,6 @@ def _load_report(path: str, mtime: float) -> ScanReport:
     return ScanReport.model_validate_json(Path(path).read_text())
 
 
-def _mean_brief_cost(reports: list[Path]) -> tuple[float, str] | None:
-    """Mean Gemini brief cost from the newest report that ran briefs."""
-    for path in reports:
-        report = _load_report(str(path), path.stat().st_mtime)
-        costs = [r.brief.usage.cost_usd for r in report.results if r.brief and r.brief.usage]
-        if costs:
-            return statistics.mean(costs), path.name
-    return None
-
-
 def _report_label(path: Path) -> str:
     report = _load_report(str(path), path.stat().st_mtime)
     mode = f"{report.briefs_generated} briefs" if report.escalation_enabled else "Jev only"
@@ -188,62 +177,27 @@ def _results_table(report: ScanReport) -> pd.DataFrame:
     )
 
 
-def _render_headline(report: ScanReport) -> None:
-    """The result in one line, with the evidence that the screen can be trusted."""
-    avoided = report.tickers_scanned - report.tickers_escalated
-    rate = avoided / report.tickers_scanned if report.tickers_scanned else 0
-    st.markdown(
-        f"#### This scan: **{avoided} of {report.tickers_scanned}** research briefs avoided ({rate:.0%}) - "
-        f"only **{report.tickers_escalated}** tickers flagged for a full brief"
-    )
-    st.caption(
-        f"On a held-out, hand-labeled set of {HELD_OUT['tickers']} S&P 500 tickers, the same policy caught "
-        f"{HELD_OUT['caught']} of {HELD_OUT['events']} material events while escalating {HELD_OUT['escalation']} "
-        "of tickers. See *How it works and how it was evaluated* below."
+def _report_summary(report: ScanReport) -> str:
+    """One line for the selected report - the top strip already has the headline numbers."""
+    when = datetime.fromisoformat(report.started_at).strftime("%-d %b %Y, %H:%M UTC")
+    universe = {"sp500": "S&P 500", "sp100": "S&P 100"}.get(report.universe, report.universe)
+    if not report.escalation_enabled:
+        mode = "screening only, no briefs run"
+    elif report.max_briefs is not None and report.tickers_escalated > report.briefs_generated:
+        mode = f"{report.briefs_generated} briefs, capped at {report.max_briefs}"
+    else:
+        mode = f"{report.briefs_generated} briefs"
+    cost = f"{_usd(report.jev_cost_usd)} {'estimated' if report.jev_cost_is_estimate else 'exact'}"
+    return (
+        f"**{when}** · {universe} · {mode} · {report.tickers_scanned} screened, "
+        f"**{report.tickers_escalated} flagged** ({report.escalation_rate:.0%}) · screening cost {cost}"
     )
 
 
-def _render_report(report: ScanReport, reports: list[Path]) -> None:
-    _render_headline(report)
+def _render_report(report: ScanReport) -> None:
+    st.markdown(_report_summary(report))
     with st.expander("How it works and how it was evaluated"):
         st.markdown(METHODOLOGY_MD)
-
-    cols = st.columns(4)
-    cols[0].metric("Tickers scanned", report.tickers_scanned)
-    cols[1].metric("Escalated", f"{report.escalation_rate:.0%}", help=f"{report.tickers_escalated} tickers")
-    cols[2].metric(
-        f"Jev cost ({'estimated' if report.jev_cost_is_estimate else 'exact'})", _usd(report.jev_cost_usd),
-        help=f"Median latency {report.jev_latency_p50_ms} ms, p95 {report.jev_latency_p95_ms} ms",
-    )
-
-    # Savings vs. baseline A (a full Gemini brief for every ticker), projected
-    # at a measured per-brief cost - an estimate, like all Gemini costs here.
-    brief_cost = _mean_brief_cost(reports)
-    if brief_cost:
-        per_brief, source = brief_cost
-        baseline = per_brief * report.tickers_scanned
-        screened = report.jev_cost_usd + per_brief * report.tickers_escalated
-        cols[3].metric(
-            "Projected savings", f"{1 - screened / baseline:.0%}",
-            help=(
-                f"vs. briefing every ticker: ${screened:.3f} (Jev + briefs for escalated tickers) "
-                f"instead of ${baseline:.3f}. Projected at ${per_brief:.4f}/brief, the mean "
-                f"estimated Gemini cost in {source}."
-            ),
-        )
-    else:
-        cols[3].metric("Projected savings", "n/a", help="Needs one scan that ran briefs to measure brief cost.")
-
-    if not report.escalation_enabled:
-        st.info(
-            "Jev-only scan: every decision is recorded but no briefs ran. "
-            f"{report.tickers_escalated} of {report.tickers_scanned} tickers would have been escalated."
-        )
-    elif report.max_briefs is not None and report.tickers_escalated > report.briefs_generated:
-        st.info(
-            f"Briefs were capped at {report.max_briefs}: the strongest signals were briefed, "
-            f"{report.tickers_escalated - report.briefs_generated} escalated tickers were not."
-        )
 
     show = st.segmented_control(
         "Show", ["All", "Escalated", "Not escalated"], default="All", key="scan_filter"
@@ -548,4 +502,4 @@ with tab_scan:
         st.info("No scans yet. Run `python run_scan.py --universe sp100 --no-escalate` to create one.")
     else:
         selected = st.selectbox("Scan report", reports, format_func=_report_label)
-        _render_report(_load_report(str(selected), selected.stat().st_mtime), reports)
+        _render_report(_load_report(str(selected), selected.stat().st_mtime))

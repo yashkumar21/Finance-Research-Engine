@@ -1,6 +1,9 @@
 """Finnhub-backed tool for the Research Agent."""
 
+import csv
 import os
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -9,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
+UNIVERSES_DIR = Path(__file__).resolve().parent.parent / "data" / "universes"
 
 
 def _resolve_symbol(query: str, api_key: str) -> Optional[str]:
@@ -67,6 +71,37 @@ def _resolve_and_quote(query: str, api_key: str) -> tuple[str, dict]:
             ticker = resolved
             quote = _fetch_quote(ticker, api_key)
     return ticker, quote
+
+
+@lru_cache(maxsize=1)
+def load_company_names() -> dict[str, str]:
+    """Ticker -> company name from data/universes/*_names.csv (e.g. "Tesla, Inc.")."""
+    names = {}
+    for path in UNIVERSES_DIR.glob("*_names.csv"):
+        rows = (line for line in path.read_text().splitlines() if not line.startswith("#"))
+        names.update({row["ticker"]: row["name"] for row in csv.DictReader(rows)})
+    return names
+
+
+def get_company_name(ticker: str) -> str:
+    """Best-effort display name: the S&P 500 name list, then Finnhub's company
+    profile, then the ticker itself. Never raises."""
+    ticker = (ticker or "").strip().upper()
+    if ticker in load_company_names():
+        return load_company_names()[ticker]
+    api_key = os.environ.get("FINNHUB_API_KEY")
+    if api_key and ticker:
+        try:
+            resp = requests.get(
+                f"{FINNHUB_BASE_URL}/stock/profile2", params={"symbol": ticker, "token": api_key}, timeout=10
+            )
+            resp.raise_for_status()
+            name = (resp.json() or {}).get("name")
+            if name:
+                return name
+        except (requests.exceptions.RequestException, ValueError):
+            pass
+    return ticker
 
 
 def resolve_ticker(query: str) -> str:

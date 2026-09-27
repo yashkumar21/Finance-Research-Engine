@@ -8,7 +8,6 @@ Jev calls and can be re-scored against a different policy later.
 """
 
 import asyncio
-import csv
 import os
 import statistics
 from datetime import datetime, timezone
@@ -21,7 +20,7 @@ from screener.policy import DEFAULT_POLICY, PolicyConfig, decide
 from tools.jev_screen import screen_ticker
 from tools.news_tool import get_company_news
 from tools.rate_limit import TokenBucket
-from tools.stock_data_tool import get_quote_snapshot
+from tools.stock_data_tool import get_quote_snapshot, load_company_names  # noqa: F401 - re-exported for the app
 
 ROOT = Path(__file__).resolve().parent.parent
 UNIVERSES_DIR = ROOT / "data" / "universes"
@@ -54,18 +53,6 @@ def load_universe(name: str) -> list[str]:
     """Tickers from data/universes/<name>.txt, skipping blanks and # comments."""
     lines = (UNIVERSES_DIR / f"{name}.txt").read_text().splitlines()
     return [line.strip().upper() for line in lines if line.strip() and not line.startswith("#")]
-
-
-def load_company_names() -> dict[str, str]:
-    """Ticker -> company name from data/universes/*_names.csv, for display.
-
-    Scan reports from before names were recorded fall back to this list.
-    """
-    names = {}
-    for path in UNIVERSES_DIR.glob("*_names.csv"):
-        rows = (line for line in path.read_text().splitlines() if not line.startswith("#"))
-        names.update({row["ticker"]: row["name"] for row in csv.DictReader(rows)})
-    return names
 
 
 def save_report(report: ScanReport) -> Path:

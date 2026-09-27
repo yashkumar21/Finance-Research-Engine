@@ -41,6 +41,7 @@ def _analyst_state(ticker: str, generated_at: str, research_data: dict, sentimen
         "ticker": ticker,
         "generated_at": generated_at,
         "as_of": format_as_of(generated_at),
+        "company_name": "Widgets Inc",
         "research_data": json.dumps(research_data),
         "sentiment_data": json.dumps(sentiment_data),
         "figures_text": format_figures_for_analyst(research_data),
@@ -164,7 +165,8 @@ async def test_end_to_end_company_name_resolves_ticker_in_brief():
 
     # The Analyst's heading is templated from the same resolved ticker used
     # to fetch data, so it must read "AAPL", not the literal input "APPLE".
-    assert "# AAPL Research Brief" in brief.brief_markdown
+    assert "(AAPL) Research Brief" in brief.brief_markdown
+    assert "Apple" in brief.brief_markdown.splitlines()[0]
 
 
 @pytest.mark.asyncio

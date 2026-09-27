@@ -31,7 +31,7 @@ from agents.research_agent import build_research_step
 from agents.sentiment_agent import build_sentiment_agent
 from pricing import gemini_cost
 from schemas import ResearchBrief, Usage
-from tools.stock_data_tool import resolve_ticker
+from tools.stock_data_tool import get_company_name, resolve_ticker
 
 APP_NAME = "finance_research_engine_orchestrator"
 # Briefs normally take 9-12 s end to end. When Gemini's per-minute request
@@ -106,10 +106,11 @@ async def run_research_brief(
     an estimate (tokens x list price, see pricing.py).
     """
     ticker = resolve_ticker(ticker)
+    company_name = get_company_name(ticker)
     for attempt in range(1, BRIEF_ATTEMPTS + 1):
         try:
             async with asyncio.timeout(BRIEF_TIMEOUT_SECONDS):
-                return await _run_pipeline(ticker, user_id, on_event)
+                return await _run_pipeline(ticker, company_name, user_id, on_event)
         except TimeoutError:
             if attempt == BRIEF_ATTEMPTS:
                 raise BriefTimeoutError(
@@ -122,7 +123,7 @@ async def run_research_brief(
 
 
 async def _run_pipeline(
-    ticker: str, user_id: str, on_event: Optional[Callable[[Event], None]]
+    ticker: str, company_name: str, user_id: str, on_event: Optional[Callable[[Event], None]]
 ) -> ResearchBrief:
     pipeline = build_pipeline()
     runner = InMemoryRunner(agent=pipeline, app_name=APP_NAME)
@@ -131,7 +132,12 @@ async def _run_pipeline(
     session = await runner.session_service.create_session(
         app_name=APP_NAME,
         user_id=user_id,
-        state={"ticker": ticker, "generated_at": generated_at, "as_of": format_as_of(generated_at)},
+        state={
+            "ticker": ticker,
+            "company_name": company_name,
+            "generated_at": generated_at,
+            "as_of": format_as_of(generated_at),
+        },
     )
 
     message = types.Content(role="user", parts=[types.Part(text=f"Research {ticker}")])

@@ -12,7 +12,8 @@ character, from the "Key figures" list below (for example "+83.4%",
 "$5.48T"). Never calculate, round, convert, estimate or invent a number, and
 never quote a raw value from the JSON instead of its formatted figure.
 
-Ticker: {ticker}
+Company: {company_name} (ticker {ticker}). Refer to the company by its name
+({company_name}) in your prose, not only by its ticker.
 Data as of: {as_of}
 
 Key figures (already formatted - quote these exactly):
@@ -24,7 +25,7 @@ about this company that it judged relevant):
 
 Write a markdown research brief with exactly this structure:
 
-# {ticker} Research Brief
+# {company_name} ({ticker}) Research Brief
 *Data as of {as_of}.*
 
 ## Bottom line

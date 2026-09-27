@@ -137,11 +137,13 @@ def screen_ticker(ticker: str, quote: dict, news: dict, questions: dict = QUESTI
         if resp.status_code == 429:
             return {"success": False, "ticker": ticker, "error": "Jev rate limit exceeded after retries."}
         if not resp.ok:
-            # TypeSafe errors are {"message", "error_type"}; handle a nested
-            # {"error": {"message"}} too in case a proxy sits in between.
+            # TypeSafe errors are {"detail": {"error_type", "message"}}; also
+            # handle {"error": {...}} and a flat {"message"} from proxies.
             try:
                 error_body = resp.json()
-                nested = error_body.get("error") if isinstance(error_body.get("error"), dict) else {}
+                nested = next(
+                    (error_body[k] for k in ("detail", "error") if isinstance(error_body.get(k), dict)), {}
+                )
                 message = nested.get("message") or error_body.get("message") or resp.text
             except ValueError:
                 message = resp.text
@@ -149,6 +151,9 @@ def screen_ticker(ticker: str, quote: dict, news: dict, questions: dict = QUESTI
                 "success": False,
                 "ticker": ticker,
                 "error": f"Jev API error ({resp.status_code}) after {attempts} attempt(s): {message}",
+                # Lets the scanner tell account problems (401/402/403),
+                # which hit every ticker, from one-off failures.
+                "status_code": resp.status_code,
             }
 
         body = resp.json()

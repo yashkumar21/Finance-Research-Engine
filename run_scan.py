@@ -16,7 +16,7 @@ import sys
 from dotenv import load_dotenv
 
 from schemas import TickerScanResult
-from screener.scan import ROOT, load_universe, run_scan, save_report
+from screener.scan import ROOT, JevAccessError, load_universe, run_scan, save_report
 
 load_dotenv()
 
@@ -52,13 +52,18 @@ async def main() -> None:
     mode = "Jev only" if not escalate else f"briefs capped at {args.max_briefs}" if args.max_briefs is not None else "briefs uncapped"
     print(f"Scanning {len(tickers)} tickers from {universe} ({mode})", flush=True)
 
-    report = await run_scan(
-        tickers,
-        universe,
-        escalate=escalate,
-        max_briefs=args.max_briefs,
-        on_result=_print_progress,
-    )
+    try:
+        report = await run_scan(
+            tickers,
+            universe,
+            escalate=escalate,
+            max_briefs=args.max_briefs,
+            on_result=_print_progress,
+        )
+    except JevAccessError as exc:
+        # No report is written: a scan where Jev never answered is not data.
+        print(f"\nScan stopped - Jev is unavailable for this account: {exc}", file=sys.stderr, flush=True)
+        sys.exit(2)
 
     path = save_report(report)
 

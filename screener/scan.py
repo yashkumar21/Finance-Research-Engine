@@ -8,6 +8,7 @@ Jev calls and can be re-scored against a different policy later.
 """
 
 import asyncio
+import os
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,14 @@ BRIEF_CONCURRENCY = 2
 # several, so two concurrent briefs regularly hit 429s; wait them out.
 BRIEF_MAX_RETRIES = 3
 BRIEF_RETRY_SECONDS = 30
+# Account-level Jev errors (bad key, no credits, access revoked) fail every
+# ticker the same way, so they stop the scan instead of being escalated one
+# by one - with escalation on, that would try to brief the whole universe.
+FATAL_JEV_STATUS_CODES = {401, 402, 403}
+
+
+class JevAccessError(RuntimeError):
+    """Jev can't be used at all right now; the scan was stopped."""
 
 
 def load_universe(name: str) -> list[str]:
@@ -71,6 +80,8 @@ async def _screen_one(ticker: str, finnhub: TokenBucket, config: PolicyConfig) -
         screen = {"success": False, "ticker": ticker, "error": f"data fetch failed: {'; '.join(errors)}"}
     else:
         screen = await asyncio.to_thread(screen_ticker, ticker, quote, news)
+        if screen.get("status_code") in FATAL_JEV_STATUS_CODES:
+            raise JevAccessError(screen["error"])
 
     return TickerScanResult(
         ticker=ticker,
@@ -135,19 +146,31 @@ async def run_scan(
             are escalated, the strongest signals are briefed first.
         on_result: Called with (done, total, result) as each ticker finishes
             screening - for progress output.
+
+    Raises:
+        JevAccessError: TYPESAFE_API_KEY is missing, or Jev rejected the
+            account (401/402/403). Workers stop taking new tickers and no
+            briefs run.
     """
+    if not os.environ.get("TYPESAFE_API_KEY"):
+        raise JevAccessError("TYPESAFE_API_KEY is not set.")
+
     started_at = datetime.now(timezone.utc).isoformat()
     finnhub = TokenBucket()
     queue: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
     for item in enumerate(tickers):
         queue.put_nowait(item)
     results: list[Optional[TickerScanResult]] = [None] * len(tickers)
+    access_errors: list[JevAccessError] = []
 
     async def worker() -> None:
-        while not queue.empty():
+        while not queue.empty() and not access_errors:
             i, ticker = queue.get_nowait()
             try:
                 result = await _screen_one(ticker, finnhub, config)
+            except JevAccessError as exc:
+                access_errors.append(exc)
+                return
             except Exception as exc:  # never silently drop a ticker
                 error = f"{type(exc).__name__}: {exc}"
                 result = TickerScanResult(
@@ -160,6 +183,8 @@ async def run_scan(
                 on_result(sum(r is not None for r in results), len(tickers), result)
 
     await asyncio.gather(*(worker() for _ in range(SCREEN_CONCURRENCY)))
+    if access_errors:
+        raise access_errors[0]
 
     escalated = [r for r in results if r.decision.escalate]
     if escalate:

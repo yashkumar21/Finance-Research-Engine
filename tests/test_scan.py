@@ -11,7 +11,7 @@ import pytest
 from dotenv import load_dotenv
 
 from schemas import ScanReport
-from screener.scan import load_universe, run_scan
+from screener.scan import JevAccessError, load_universe, run_scan
 
 load_dotenv()
 
@@ -44,6 +44,22 @@ async def test_scan_without_escalation_screens_every_ticker():
     assert invalid.screen is None
     assert "data fetch failed" in invalid.screen_error
     assert invalid.decision.escalate is True
+
+
+@pytest.mark.asyncio
+async def test_rejected_jev_key_stops_the_scan(monkeypatch):
+    # A real call with a key TypeSafe rejects (401): the scan must stop, not
+    # record every ticker as a failure and escalate it.
+    monkeypatch.setenv("TYPESAFE_API_KEY", "invalid-key-for-test")
+    with pytest.raises(JevAccessError, match="401"):
+        await run_scan(["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META"], "custom", escalate=False)
+
+
+@pytest.mark.asyncio
+async def test_missing_jev_key_stops_before_any_call(monkeypatch):
+    monkeypatch.delenv("TYPESAFE_API_KEY")
+    with pytest.raises(JevAccessError, match="not set"):
+        await run_scan(["AAPL"], "custom", escalate=False)
 
 
 def test_universes_load():

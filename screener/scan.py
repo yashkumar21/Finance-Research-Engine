@@ -25,6 +25,9 @@ from tools.stock_data_tool import get_quote_snapshot, load_company_names  # noqa
 ROOT = Path(__file__).resolve().parent.parent
 UNIVERSES_DIR = ROOT / "data" / "universes"
 RUNS_DIR = ROOT / "runs"
+# Sample reports committed with the repo, used when runs/ is empty - e.g. a
+# deployed copy of the app, which has no nightly job writing to runs/.
+DEMO_DIR = ROOT / "data" / "demo"
 
 # /quote, plus the news tool's /stock/profile2 and /company-news.
 FINNHUB_CALLS_PER_TICKER = 3
@@ -65,8 +68,14 @@ def save_report(report: ScanReport) -> Path:
 
 
 def list_reports() -> list[Path]:
-    """Saved scan reports, newest first."""
-    return sorted(RUNS_DIR.glob("scan-*.json"), reverse=True)
+    """Saved scan reports, newest first - the sample reports in data/demo/
+    only when runs/ has none."""
+    reports = sorted(RUNS_DIR.glob("scan-*.json"), reverse=True)
+    return reports or sorted(DEMO_DIR.glob("scan-*.json"), reverse=True)
+
+
+def is_demo_report(path: Path) -> bool:
+    return path.parent == DEMO_DIR
 
 
 async def _screen_one(ticker: str, finnhub: TokenBucket, config: PolicyConfig) -> TickerScanResult:

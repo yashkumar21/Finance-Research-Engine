@@ -58,7 +58,7 @@ from agents.orchestrator import (  # noqa: E402
 )
 from schemas import ScanReport  # noqa: E402
 from screener.policy import DEFAULT_POLICY, decide  # noqa: E402
-from screener.scan import list_reports, load_company_names, run_scan, save_report  # noqa: E402
+from screener.scan import is_demo_report, list_reports, load_company_names, run_scan, save_report  # noqa: E402
 from tools.jev_screen import screen_ticker  # noqa: E402
 from tools.news_tool import get_company_news, headlines_about  # noqa: E402
 from tools.stock_data_tool import get_quote_snapshot, resolve_ticker  # noqa: E402
@@ -137,7 +137,8 @@ def _report_label(path: Path) -> str:
     universe = {"sp500": "S&P 500", "sp100": "S&P 100", "live": "Live scan", "custom": "Custom list"}.get(
         report.universe, report.universe
     )
-    mode = f"{report.briefs_generated} briefs" if report.escalation_enabled else "screening only"
+    n = report.briefs_generated
+    mode = f"{n} brief{'s' if n != 1 else ''}" if report.escalation_enabled else "screening only"
     return f"{when} · {universe} · {report.tickers_scanned} tickers · {mode}"
 
 
@@ -568,13 +569,13 @@ def _brief_flow(ticker: str, flagged: bool, state_key: str, close_call: bool = F
             st.json(brief.sentiment, expanded=False)
 
 
-def _latest_index_report() -> ScanReport | None:
-    """Newest S&P 500 scan - the nightly job's universe - so an ad-hoc S&P 100
-    or live scan never becomes the headline; the newest S&P 100 scan only if
-    no S&P 500 scan exists yet."""
-    reports = [_load_report(str(p), p.stat().st_mtime) for p in list_reports()]
+def _latest_index_report() -> tuple[ScanReport, bool] | None:
+    """(report, is_sample) for the newest S&P 500 scan - the nightly job's
+    universe - so an ad-hoc S&P 100 or live scan never becomes the headline;
+    the newest S&P 100 scan only if no S&P 500 scan exists yet."""
+    reports = [(_load_report(str(p), p.stat().st_mtime), is_demo_report(p)) for p in list_reports()]
     for universe in ("sp500", "sp100"):
-        match = next((r for r in reports if r.universe == universe), None)
+        match = next((r for r in reports if r[0].universe == universe), None)
         if match:
             return match
     return None
@@ -600,15 +601,18 @@ def _scan_age(finished_at: str) -> tuple[str, bool]:
 
 def _render_last_scan_summary() -> None:
     """The result up front: what the last nightly scan did, and why it can be trusted."""
-    report = _latest_index_report()
-    if not report:
+    latest = _latest_index_report()
+    if not latest:
         return
+    report, is_sample = latest
     avoided = report.tickers_scanned - report.tickers_escalated
     when = datetime.fromisoformat(report.started_at).strftime("%-d %b %Y")
     universe = {"sp500": "S&P 500", "sp100": "S&P 100"}[report.universe]
     with st.container(border=True):
         cols = st.columns(4)
         age, stale = _scan_age(report.finished_at)
+        if is_sample:  # a committed sample report: its age says nothing about the nightly job
+            age, stale = "sample scan", False
         cols[0].metric(
             "Last nightly scan", when, delta=age, delta_color="inverse" if stale else "off", delta_arrow="off",
             help=f"{universe}, Jev screening only. The scan runs Tuesday-Saturday at 03:00 IST, after each "

@@ -295,6 +295,24 @@ within paid-tier rate limits, where briefing everything would not fit Gemini's f
   escalate rather than drop a ticker), and its behaviour may change between versions - every result
   records the model that produced it.
 
+## Deploying (Streamlit Community Cloud)
+
+1. At [share.streamlit.io](https://share.streamlit.io), create an app from this repository: branch
+   `master`, main file `app.py`, Python 3.12 (under *Advanced settings*).
+2. Paste the keys into the app's **Secrets** (never into the repo):
+
+   ```toml
+   GOOGLE_API_KEY = "..."
+   FINNHUB_API_KEY = "..."
+   TYPESAFE_API_KEY = "..."
+   GOOGLE_GENAI_USE_VERTEXAI = "FALSE"
+   ```
+
+A deployed copy has no nightly job writing to `runs/`, so the Daily Scan tab and the top strip use
+the sample reports committed in `data/demo/` (the 27 Sep 2026 S&P 500 scan and an S&P 100 scan with
+10 briefs), labelled "sample scan". Single ticker screening and briefs run live on your keys.
+Streamlit Cloud sleeps inactive apps, so the first visit after a while takes ~30 s to wake.
+
 ## Notes on model selection
 
 All three agents currently use `gemini-3.5-flash-lite` — swap the `model=` string in `agents/*.py`

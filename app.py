@@ -60,9 +60,9 @@ from tools.stock_data_tool import get_quote_snapshot, resolve_ticker  # noqa: E4
 
 LIVE_SCAN_MAX_TICKERS = 20
 LIVE_SCAN_MAX_BRIEFS = 3
-# Typical cost and time of a full Gemini brief, for the button label: ~$0.004-0.008
-# estimated from token counts in test runs, 12-26 s end to end.
-BRIEF_COST_HINT = "~20 s, ~$0.008"
+# Typical time of a full Gemini brief in test runs (12-26 s), for the button label.
+# Per-click costs stay out of the single-ticker flow; the Daily Scan tab shows costs.
+BRIEF_TIME_HINT = "~20 s"
 # One-click examples so a first-time visitor doesn't have to think of a ticker.
 EXAMPLE_TICKERS = ["AAPL", "MSFT", "NVDA", "TSLA"]
 
@@ -365,8 +365,7 @@ def _render_screen(result: dict) -> None:
             st.markdown("**Headlines about the company**")
             for h in about[:3]:
                 st.markdown(f"- [{_md(h['headline'])}]({h['url']}) - {h['source']}, {h['published_at'][:10]}")
-        cost = f"${result['cost_usd']:.5f}" if result["cost_usd"] else "under $0.0001"
-        st.caption(f"Screened by Jev ({screen['model']}) in {result['seconds']:.1f} s for {cost} (estimated).")
+        st.caption(f"Screened by Jev in {result['seconds']:.1f} s.")
 
 
 def _latest_index_report() -> ScanReport | None:
@@ -444,7 +443,7 @@ with tab_brief:
         escalate = result["decision"] is not None and result["decision"].escalate
         with st.container(horizontal=True, vertical_alignment="center"):
             want_brief = st.button(
-                f"Get the full research brief ({BRIEF_COST_HINT})",
+                f"Get the full research brief ({BRIEF_TIME_HINT})",
                 type="primary" if escalate else "secondary",
                 disabled="brief" in st.session_state,
             )
@@ -500,15 +499,7 @@ with tab_brief:
                 st.warning(f"Sentiment data unavailable for {brief.ticker}: {brief.sentiment.get('error')}")
 
             st.markdown(_md(brief.brief_markdown))
-            if brief.usage:
-                ratio = (
-                    f" - about {brief.usage.cost_usd / result['cost_usd']:,.0f}x the cost of the screen"
-                    if result["cost_usd"]
-                    else ""
-                )
-                st.caption(
-                    f"Brief generated in {seconds:.0f} s for ~${brief.usage.cost_usd:.4f} of Gemini (estimated){ratio}."
-                )
+            st.caption(f"Brief generated in {seconds:.0f} s.")
 
             with st.expander("Research Agent output (raw)"):
                 st.json(brief.research)

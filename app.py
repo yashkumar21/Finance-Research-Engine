@@ -197,7 +197,7 @@ def _results_table(report: ScanReport) -> pd.DataFrame:
         s = r.screen
         rows.append({
             "Ticker": r.ticker,
-            "Company": r.company_name or names.get(r.ticker, ""),
+            "Company": names.get(r.ticker) or r.company_name or "",
             "Flagged": "yes" if r.decision.escalate else "no",
             "Why": _why(r),
             "Major-news likelihood": s.material_event if s else None,
@@ -387,7 +387,7 @@ def _render_verdict(
     move: float | None,
     headlines: list[dict],
     caption: str,
-    when: str = "today",
+    when: str = "on the latest trading day",
 ) -> None:
     """The screening verdict for one company - used by Single ticker and the
     Daily Scan detail panel. screen is a ScreenResult as a dict, or None if
@@ -415,7 +415,7 @@ def _render_verdict(
             )
         else:
             st.markdown(f"### {name}: nothing major detected")
-            st.markdown(f"No sign of major news ({MAJOR_NEWS}) and no big price move {when}.")
+            st.markdown(f"The screen didn't detect major news ({MAJOR_NEWS}), and there was no big price move {when}.")
 
         cols = st.columns(3)
         if screen:
@@ -555,11 +555,14 @@ def _brief_flow(ticker: str, flagged: bool, state_key: str, close_call: bool = F
 
 
 def _latest_index_report() -> ScanReport | None:
-    """Newest full-index scan (S&P 500/100), skipping small live and custom scans."""
-    for path in list_reports():
-        report = _load_report(str(path), path.stat().st_mtime)
-        if report.universe in ("sp500", "sp100"):
-            return report
+    """Newest S&P 500 scan - the nightly job's universe - so an ad-hoc S&P 100
+    or live scan never becomes the headline; the newest S&P 100 scan only if
+    no S&P 500 scan exists yet."""
+    reports = [_load_report(str(p), p.stat().st_mtime) for p in list_reports()]
+    for universe in ("sp500", "sp100"):
+        match = next((r for r in reports if r.universe == universe), None)
+        if match:
+            return match
     return None
 
 

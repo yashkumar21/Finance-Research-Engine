@@ -133,8 +133,12 @@ def _load_report(path: str, mtime: float) -> ScanReport:
 
 def _report_label(path: Path) -> str:
     report = _load_report(str(path), path.stat().st_mtime)
-    mode = f"{report.briefs_generated} briefs" if report.escalation_enabled else "Jev only"
-    return f"{report.started_at[:16].replace('T', ' ')} UTC - {report.universe}, {report.tickers_scanned} tickers ({mode})"
+    when = datetime.fromisoformat(report.started_at).strftime("%-d %b %Y, %H:%M UTC")
+    universe = {"sp500": "S&P 500", "sp100": "S&P 100", "live": "Live scan", "custom": "Custom list"}.get(
+        report.universe, report.universe
+    )
+    mode = f"{report.briefs_generated} briefs" if report.escalation_enabled else "screening only"
+    return f"{when} · {universe} · {report.tickers_scanned} tickers · {mode}"
 
 
 def _md(text: str) -> str:
@@ -347,10 +351,14 @@ def _screen_single(query: str) -> dict:
     ticker = resolve_ticker(query)
     quote = get_quote_snapshot(ticker)
     news = get_company_news(ticker)
-    result = {"ticker": ticker, "quote": quote, "news": news, "screen": None, "decision": None,
-              "error": None, "cost_usd": 0.0}
+    result = {"query": query, "ticker": ticker, "quote": quote, "news": news, "screen": None, "decision": None,
+              "error": None, "not_found": False, "cost_usd": 0.0}
     if not quote["success"] or not news["success"]:
-        result["error"] = "; ".join(d["error"] for d in (quote, news) if not d["success"])
+        errors = [d["error"] for d in (quote, news) if not d["success"]]
+        result["error"] = "; ".join(errors)
+        # Both tools phrase an unknown symbol this way; anything else (network,
+        # rate limits) is a real failure worth showing as-is.
+        result["not_found"] = all("found for ticker" in e for e in errors)
     else:
         screen = screen_ticker(ticker, quote, news)
         result["screen"] = screen
@@ -447,8 +455,14 @@ def _render_verdict(
 
 def _render_screen(result: dict) -> None:
     ticker = result["ticker"]
+    if result.get("not_found"):
+        st.warning(
+            f"We couldn't find a listed company matching \"{result['query']}\". "
+            "Try a ticker such as AAPL, or a company name such as Apple."
+        )
+        return
     if result["error"]:
-        st.error(f"Couldn't screen {ticker}: {result['error']}")
+        st.error(f"Couldn't screen {ticker} right now: {result['error']}")
         return
     _render_verdict(
         ticker, result["news"].get("company_name"), result["screen"], result["decision"],

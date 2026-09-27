@@ -69,7 +69,7 @@ LIVE_SCAN_MAX_BRIEFS = 3
 # Per-click costs stay out of the single-ticker flow; the Daily Scan tab shows costs.
 BRIEF_TIME_HINT = "~20 s"
 # One-click examples so a first-time visitor doesn't have to think of a ticker.
-EXAMPLE_TICKERS = ["AAPL", "MSFT", "NVDA", "TSLA"]
+EXAMPLE_TICKERS = {"AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "Nvidia", "TSLA": "Tesla"}
 
 # Held-out evaluation of the current policy, from the committed reports in
 # eval/results/ (the JSON results are gitignored, so a deployed app can't
@@ -432,12 +432,14 @@ with tab_brief:
         "Step 2, the full multi-agent research brief, runs only if you ask for it."
     )
     with st.form("ticker_form"):
-        ticker_input = st.text_input("Stock ticker or company name", placeholder="AAPL")
+        ticker_input = st.text_input("Stock ticker or company name", placeholder="e.g. Apple or AAPL")
         submitted = st.form_submit_button("Screen")
 
     with st.container(horizontal=True, horizontal_alignment="left", vertical_alignment="center", gap="small"):
         st.caption("Or try an example:", width="content")
-        clicked = [t for t in EXAMPLE_TICKERS if st.button(t, key=f"example_{t}")]  # draw every button
+        clicked = [  # a list, so every button is drawn
+            t for t, name in EXAMPLE_TICKERS.items() if st.button(f"{name} ({t})", key=f"example_{t}")
+        ]
     example = clicked[0] if clicked else None
 
     if submitted or example:

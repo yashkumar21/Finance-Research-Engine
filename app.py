@@ -44,6 +44,7 @@ for _key in ("GOOGLE_API_KEY", "FINNHUB_API_KEY", "TYPESAFE_API_KEY", "GOOGLE_GE
 
 import asyncio  # noqa: E402
 
+import altair as alt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import re  # noqa: E402
@@ -234,33 +235,81 @@ def _report_summary(report: ScanReport) -> str:
     )
 
 
-def _render_report(report: ScanReport) -> None:
-    st.markdown(_report_summary(report))
-    with st.expander("How it works and how it was evaluated"):
-        st.markdown(METHODOLOGY_MD)
+# Flagged vs. not flagged: one accent against a recessive grey (checked for
+# colour-blind separation in light and dark themes).
+FLAGGED_COLOR = "#3987e5"
+NOT_FLAGGED_COLOR = "#8b8a85"
+# Reasons only the earlier policy (needs_analysis / low confidence) produced.
+_EARLIER_POLICY_REASONS = ("analyst attention likely", "Jev unsure of sentiment")
 
-    show = st.segmented_control(
-        "Show", ["All", "Flagged", "Not flagged"], default="All", key="scan_filter"
-    ) or "All"
-    table = _results_table(report)
-    if not any(r.brief or r.brief_error for r in report.results):
-        table = table.drop(columns="Brief")  # always empty on Jev-only scans
-    if show != "All":
-        table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
 
-    st.caption("Click a row to open the evidence behind the decision - the headlines the screen read, "
-               "and the full brief.")
-    # Closing the pop-up bumps the generation so the table redraws with no row
-    # selected; otherwise the next rerun would reopen it. The filter and report
-    # are in the key too, so a row index never carries over to a different table.
-    gen = st.session_state.setdefault("scan_table_gen", 0)
+def _scan_chart(table: pd.DataFrame, report: ScanReport) -> alt.LayerChart:
+    """Major-news likelihood vs. today's move for every screened ticker, with the
+    policy's escalation zones shaded - the whole screen in one picture."""
+    data = table.dropna(subset=["Major-news likelihood", "Move %"]).rename(
+        columns={"Major-news likelihood": "likelihood", "Move %": "move"}
+    )
+    data["status"] = data["Flagged"].map({"yes": "Flagged for a brief", "no": "Not flagged"})
+    threshold = DEFAULT_POLICY.material_event_threshold
+    move = DEFAULT_POLICY.price_move_threshold_pct
+    y_max = max(move + 1.5, float(data["move"].abs().max()) + 0.5) if len(data) else move + 1.5
+    x = alt.X("likelihood:Q", title="Major-news likelihood (Jev)", scale=alt.Scale(domain=[0, 1]),
+              axis=alt.Axis(format="%", tickCount=5, grid=False))
+    y = alt.Y("move:Q", title="Price move today (%)", scale=alt.Scale(domain=[-y_max, y_max], nice=False),
+              axis=alt.Axis(tickCount=7))
+
+    zones = pd.DataFrame([
+        {"x0": threshold, "x1": 1.0, "y0": -y_max, "y1": y_max},
+        {"x0": 0.0, "x1": threshold, "y0": move, "y1": y_max},
+        {"x0": 0.0, "x1": threshold, "y0": -y_max, "y1": -move},
+    ])
+    shade = alt.Chart(zones).mark_rect(color=FLAGGED_COLOR, opacity=0.08).encode(
+        x="x0:Q", x2="x1:Q", y="y0:Q", y2="y1:Q"
+    )
+    labels = pd.DataFrame([
+        {"x": threshold + 0.01, "y": y_max, "text": f"Major news likely (≥ {threshold:.0%})"},
+        {"x": 0.01, "y": y_max, "text": f"Moved ≥ {move:g}% either way"},
+    ])
+    label_marks = alt.Chart(labels).mark_text(
+        baseline="top", align="left", dy=6, fontSize=12, color=NOT_FLAGGED_COLOR
+    ).encode(x="x:Q", y="y:Q", text="text:N")
+
+    pick = alt.selection_point(name="pick", fields=["Ticker"], on="click")
+    points = alt.Chart(data).mark_circle(size=70, stroke="white", strokeWidth=0.5).encode(
+        x=x, y=y,
+        color=alt.Color("status:N", title=None,
+                        scale=alt.Scale(domain=["Flagged for a brief", "Not flagged"],
+                                        range=[FLAGGED_COLOR, NOT_FLAGGED_COLOR]),
+                        legend=alt.Legend(orient="top", direction="horizontal")),
+        opacity=alt.condition(alt.datum.Flagged == "yes", alt.value(0.95), alt.value(0.45)),
+        order=alt.Order("Flagged:N", sort="ascending"),  # flagged dots drawn on top
+        tooltip=[
+            alt.Tooltip("Company:N"), alt.Tooltip("Ticker:N"),
+            alt.Tooltip("likelihood:Q", title="Major-news likelihood", format=".0%"),
+            alt.Tooltip("move:Q", title="Move today (%)", format="+.2f"),
+            alt.Tooltip("Why:N"),
+        ],
+    ).add_params(pick)
+
+    chart = alt.layer(shade, label_marks, points).properties(height=420)
+    if any(any(x.startswith(_EARLIER_POLICY_REASONS) for x in r.decision.reasons) for r in report.results):
+        chart = chart.properties(title=alt.TitleParams(
+            "This scan ran under an earlier, looser policy; the shading shows the current one.",
+            fontSize=12, fontWeight="normal", anchor="start",
+        ))
+    return chart
+
+
+def _scan_table(table: pd.DataFrame, key: str, height: int | str = "auto") -> list[str]:
+    """A clickable results table; returns the selected ticker, if any."""
     selection = st.dataframe(
         table,
         hide_index=True,
         width="stretch",
+        height=height,
         on_select="rerun",
         selection_mode="single-row",
-        key=f"scan_table_{report.started_at}_{show}_{gen}",
+        key=key,
         column_config={
             "Move %": st.column_config.NumberColumn(format="%+.2f"),
             "Major-news likelihood": st.column_config.ProgressColumn(
@@ -272,8 +321,53 @@ def _render_report(report: ScanReport) -> None:
         },
     )
     rows = selection.selection.rows
-    if rows and rows[0] < len(table):
-        _open_scan_detail(report, table.iloc[rows[0]]["Ticker"])
+    return [table.iloc[rows[0]]["Ticker"]] if rows and rows[0] < len(table) else []
+
+
+def _render_report(report: ScanReport) -> None:
+    st.markdown(_report_summary(report))
+    with st.expander("How it works and how it was evaluated"):
+        st.markdown(METHODOLOGY_MD)
+
+    full_table = _results_table(report)
+    if not any(r.brief or r.brief_error for r in report.results):
+        full_table = full_table.drop(columns="Brief")  # always empty on Jev-only scans
+    # Closing the pop-up bumps the generation so the chart and tables redraw with
+    # nothing selected; otherwise the next rerun would reopen it. The report (and
+    # the filter, below) are in the keys too, so a row index never carries over
+    # to a different table.
+    gen = st.session_state.setdefault("scan_table_gen", 0)
+    keys = f"{report.started_at}_{gen}"
+    picked = []  # tickers selected in the chart or a table; at most one per run
+
+    st.subheader("Where every company landed")
+    st.caption("Each dot is one company. Dots in the shaded zones were flagged for a full brief. "
+               "Hover for details, click to open it.")
+    event = st.altair_chart(
+        _scan_chart(full_table, report), width="stretch", on_select="rerun",
+        selection_mode="pick", key=f"scan_chart_{keys}",
+    )
+    picked += [p["Ticker"] for p in event.selection.get("pick", []) if p.get("Ticker")]
+
+    flagged = full_table[full_table["Flagged"] == "yes"]
+    st.subheader(f"Flagged for a full brief ({len(flagged)})")
+    st.caption("Strongest signal first. Click a row to see the headlines behind it and the full brief.")
+    picked += _scan_table(
+        flagged[["Ticker", "Company", "Why", "Major-news likelihood", "Move %"]],
+        key=f"scan_flagged_{keys}", height=min(len(flagged), 10) * 35 + 38,
+    )
+
+    with st.expander(f"All {len(full_table)} companies"):
+        show = st.segmented_control(
+            "Show", ["All", "Flagged", "Not flagged"], default="All", key="scan_filter"
+        ) or "All"
+        table = full_table
+        if show != "All":
+            table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
+        picked += _scan_table(table, key=f"scan_table_{keys}_{show}")
+
+    if picked:
+        _open_scan_detail(report, picked[0])
 
     briefed = [r for r in report.results if r.brief or r.brief_error]
     if briefed:

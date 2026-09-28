@@ -248,14 +248,19 @@ def _render_report(report: ScanReport) -> None:
     if show != "All":
         table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
 
-    st.caption("Select a row to see the evidence behind the decision - the headlines the screen read.")
+    st.caption("Click a row to open the evidence behind the decision - the headlines the screen read, "
+               "and the full brief.")
+    # Closing the pop-up bumps the generation so the table redraws with no row
+    # selected; otherwise the next rerun would reopen it. The filter and report
+    # are in the key too, so a row index never carries over to a different table.
+    gen = st.session_state.setdefault("scan_table_gen", 0)
     selection = st.dataframe(
         table,
         hide_index=True,
         width="stretch",
         on_select="rerun",
         selection_mode="single-row",
-        key="scan_table",
+        key=f"scan_table_{report.started_at}_{show}_{gen}",
         column_config={
             "Move %": st.column_config.NumberColumn(format="%+.2f"),
             "Major-news likelihood": st.column_config.ProgressColumn(
@@ -268,7 +273,7 @@ def _render_report(report: ScanReport) -> None:
     )
     rows = selection.selection.rows
     if rows and rows[0] < len(table):
-        _render_scan_detail(report, table.iloc[rows[0]]["Ticker"])
+        _open_scan_detail(report, table.iloc[rows[0]]["Ticker"])
 
     briefed = [r for r in report.results if r.brief or r.brief_error]
     if briefed:
@@ -282,6 +287,17 @@ def _render_report(report: ScanReport) -> None:
                         st.caption(f"Estimated Gemini cost: ${r.brief.usage.cost_usd:.4f}")
                 else:
                     st.error(f"Brief failed: {r.brief_error}")
+
+
+def _clear_scan_selection() -> None:
+    st.session_state["scan_table_gen"] = st.session_state.get("scan_table_gen", 0) + 1
+
+
+def _open_scan_detail(report: ScanReport, ticker: str) -> None:
+    """Show one row's detail in a pop-up, so the brief isn't buried below the table."""
+    result = next((r for r in report.results if r.ticker == ticker), None)
+    title = _display_name(ticker, result.company_name if result else None)
+    st.dialog(title, width="large", on_dismiss=_clear_scan_selection)(_render_scan_detail)(report, ticker)
 
 
 def _render_scan_detail(report: ScanReport, ticker: str) -> None:

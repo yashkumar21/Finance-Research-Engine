@@ -286,6 +286,8 @@ within paid-tier rate limits, where briefing everything would not fit Gemini's f
 - **Single labeler.** All labels are one person's judgement; there's no inter-annotator agreement.
 - **Headlines only.** Jev sees ~7 days of headlines and today's move - no filings, transcripts or prices
   beyond the quote. Week-old events can re-trigger escalation.
+- **US-listed equities only.** Finnhub's free tier returns no quotes or news for non-US exchanges
+  (e.g. Samsung, `005930.KS`, gets a 403), and private companies have no ticker to look up.
 - **Estimated costs.** Gemini's cost is token counts x list price (`pricing.py`). Jev's was exact on
   Vercel and Requesty, which report cost per call; TypeSafe's API reports only token counts, so it is
   now estimated the same way (exact tokens, $0.042/M list price).

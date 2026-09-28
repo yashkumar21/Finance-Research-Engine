@@ -458,8 +458,9 @@ def _render_screen(result: dict) -> None:
     ticker = result["ticker"]
     if result.get("not_found"):
         st.warning(
-            f"We couldn't find a listed company matching \"{result['query']}\". "
-            "Try a ticker such as AAPL, or a company name such as Apple."
+            f"We couldn't find a US-listed company matching \"{result['query']}\". "
+            "This covers US-listed companies only - international listings (e.g. Samsung) "
+            "and private companies aren't supported. Try a ticker such as AAPL, or a company name such as Apple."
         )
         return
     if result["error"]:

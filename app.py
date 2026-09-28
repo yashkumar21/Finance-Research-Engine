@@ -321,9 +321,6 @@ def _scan_chart(table: pd.DataFrame, report: ScanReport) -> alt.LayerChart:
     return chart
 
 
-_NO_SELECTION = {"selection": {"rows": [], "columns": [], "cells": []}}
-
-
 def _on_table_pick(key: str, tickers: list[str], report_id: str) -> None:
     """Row or cell clicked: remember which company's pop-up to open."""
     sel = st.session_state[key]["selection"]
@@ -374,16 +371,18 @@ def _render_report(report: ScanReport) -> None:
     # Clicks are handled by callbacks that record which company to open; the
     # pop-up opens on that one run and the request is used up, so closing it
     # needs no rerun (a rerun on close jumped the page back to the top). The
-    # table ticks are cleared before the tables draw, so a row can be clicked
-    # again. The report (and the filter, below) are in the keys, so a row index
-    # never carries over to a different table.
+    # tables get a fresh key on that run, redrawing behind the pop-up with no
+    # row selected - resetting their state server-side didn't clear the
+    # selection in the browser, so the same row couldn't be clicked again.
+    # The report (and the filter, below) are in the keys, so a row index never
+    # carries over to a different table.
     report_id = report.started_at
     chart_key = f"scan_chart_{report_id}"
-    flagged_key = f"scan_flagged_{report_id}"
     to_open = st.session_state.pop("scan_open", None)
     if to_open:
-        for key in [k for k in st.session_state if str(k).startswith(("scan_flagged_", "scan_table_"))]:
-            st.session_state[key] = _NO_SELECTION
+        st.session_state["scan_table_gen"] = st.session_state.get("scan_table_gen", 0) + 1
+    gen = st.session_state.get("scan_table_gen", 0)
+    flagged_key = f"scan_flagged_{report_id}_{gen}"
 
     st.subheader("Where every company landed")
     st.caption("Each dot is one company. Dots in the shaded zones were flagged for a full brief. "
@@ -408,7 +407,7 @@ def _render_report(report: ScanReport) -> None:
         table = full_table
         if show != "All":
             table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
-        _scan_table(table, key=f"scan_table_{report_id}_{show}", report_id=report_id)
+        _scan_table(table, key=f"scan_table_{report_id}_{show}_{gen}", report_id=report_id)
 
     if to_open and to_open[0] == report_id:
         _open_scan_detail(report, to_open[1])
@@ -832,6 +831,7 @@ with tab_brief:
     result = st.session_state.get("screen_result")
     if result:
         _render_screen(result)
+    if result and not result.get("not_found"):  # no brief button for a company we couldn't find
         ticker = result["ticker"]
         escalate = result["decision"] is not None and result["decision"].escalate
         material = result["screen"]["material_event"] if result["screen"] and result["screen"].get("success") else None

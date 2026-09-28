@@ -343,20 +343,29 @@ def _on_lookup(key: str, report_id: str) -> None:
 
 
 def _flagged_list(flagged: pd.DataFrame, report_id: str) -> None:
-    """Flagged companies as a list of buttons. Buttons, not a clickable table:
-    Streamlit's table selection kept misfiring as a way to open a pop-up (a
-    row that couldn't be clicked twice, or the wrong row opening)."""
-    box = st.container(height=440 if len(flagged) > 9 else "content", border=True)
-    with box:
-        for row in flagged.to_dict("records"):
-            name, why, move = st.columns([3, 4, 1], vertical_alignment="center")
-            name.button(
-                f"{row['Company'] or row['Ticker']} ({row['Ticker']})", key=f"open_{report_id}_{row['Ticker']}",
-                type="tertiary", on_click=_request_open, args=(report_id, row["Ticker"]),
-            )
-            why.caption(row["Why"])
-            if pd.notna(row["Move %"]):
-                move.caption(f"{row['Move %']:+.2f}% today")
+    """Flagged companies as a list of buttons under a fixed header. Buttons, not
+    a clickable table: Streamlit's table selection kept misfiring as a way to
+    open a pop-up (a row that couldn't be clicked twice, or the wrong row
+    opening). The value that triggered the flag is in bold."""
+    widths = [3, 2, 1]
+    threshold = DEFAULT_POLICY.material_event_threshold
+    move_limit = DEFAULT_POLICY.price_move_threshold_pct
+    with st.container(border=True):
+        for col, label in zip(st.columns(widths), ["Company", "Major-news likelihood", "Move %"]):
+            col.markdown(f"**{label}**")
+        with st.container(height=400 if len(flagged) > 8 else "content", border=False):
+            for row in flagged.to_dict("records"):
+                name, likelihood, move = st.columns(widths, vertical_alignment="center")
+                name.button(
+                    f"{row['Company'] or row['Ticker']} ({row['Ticker']})", key=f"open_{report_id}_{row['Ticker']}",
+                    type="tertiary", on_click=_request_open, args=(report_id, row["Ticker"]),
+                )
+                p = row["Major-news likelihood"]
+                if pd.notna(p):
+                    likelihood.markdown(f"**{p:.0%}**" if p >= threshold else f"{p:.0%}")
+                m = row["Move %"]
+                if pd.notna(m):
+                    move.markdown(f"**{m:+.2f}%**" if abs(m) >= move_limit else f"{m:+.2f}%")
 
 
 def _scan_table(table: pd.DataFrame) -> None:
@@ -404,7 +413,9 @@ def _render_report(report: ScanReport) -> None:
 
     flagged = full_table[full_table["Flagged"] == "yes"]
     st.subheader(f"Flagged for a full brief ({len(flagged)})")
-    st.caption("Strongest signal first. Click a company to see the headlines behind it and the brief.")
+    st.caption("Strongest signal first. Click a company to see the headlines behind it and the brief. "
+               f"Bold marks what flagged it: a likelihood of {DEFAULT_POLICY.material_event_threshold:.0%} or more, "
+               f"or a move of {DEFAULT_POLICY.price_move_threshold_pct:g}% or more either way.")
     _flagged_list(flagged, report_id)
 
     names = dict(zip(full_table["Ticker"], full_table["Company"]))

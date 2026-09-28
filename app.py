@@ -321,36 +321,51 @@ def _scan_chart(table: pd.DataFrame, report: ScanReport) -> alt.LayerChart:
     return chart
 
 
-_NO_SELECTION = {"selection": {"rows": [], "columns": [], "cells": []}}
-
-
-def _on_table_pick(key: str, tickers: list[str], report_id: str) -> None:
-    """Row or cell clicked: remember which company's pop-up to open."""
-    sel = st.session_state[key]["selection"]
-    rows = sel.get("rows") or [cell[0] for cell in sel.get("cells", [])]
-    if rows and rows[0] < len(tickers):
-        st.session_state["scan_open"] = (report_id, tickers[rows[0]])
+def _request_open(report_id: str, ticker: str) -> None:
+    """Remember which company's pop-up to open on this run."""
+    st.session_state["scan_open"] = (report_id, ticker)
 
 
 def _on_chart_pick(key: str, report_id: str) -> None:
     picks = st.session_state[key]["selection"].get("pick") or []
     ticker = next((p.get("Ticker") for p in picks if p.get("Ticker")), None)
     if ticker:
-        st.session_state["scan_open"] = (report_id, ticker)
+        _request_open(report_id, ticker)
 
 
-def _scan_table(table: pd.DataFrame, key: str, report_id: str, height: int | str = "auto") -> None:
-    """A clickable results table. Cell selection is on as well as the row
-    checkbox, so clicking anywhere in a row opens it - most visitors click
-    the company name, not the checkbox."""
+def _on_lookup(key: str, report_id: str) -> None:
+    """A company picked in the search box: open it, then clear the box so the
+    same company can be picked again."""
+    ticker = st.session_state.get(key)
+    if ticker:
+        _request_open(report_id, ticker)
+        st.session_state[key] = None
+
+
+def _flagged_list(flagged: pd.DataFrame, report_id: str) -> None:
+    """Flagged companies as a list of buttons. Buttons, not a clickable table:
+    Streamlit's table selection kept misfiring as a way to open a pop-up (a
+    row that couldn't be clicked twice, or the wrong row opening)."""
+    box = st.container(height=440 if len(flagged) > 9 else "content", border=True)
+    with box:
+        for row in flagged.to_dict("records"):
+            name, why, move = st.columns([3, 4, 1], vertical_alignment="center")
+            name.button(
+                f"{row['Company'] or row['Ticker']} ({row['Ticker']})", key=f"open_{report_id}_{row['Ticker']}",
+                type="tertiary", on_click=_request_open, args=(report_id, row["Ticker"]),
+            )
+            why.caption(row["Why"])
+            if pd.notna(row["Move %"]):
+                move.caption(f"{row['Move %']:+.2f}% today")
+
+
+def _scan_table(table: pd.DataFrame) -> None:
+    """The full results table, view-only - companies open from the chart, the
+    flagged list or the search box."""
     st.dataframe(
         table,
         hide_index=True,
         width="stretch",
-        height=height,
-        on_select=partial(_on_table_pick, key, table["Ticker"].tolist(), report_id),
-        selection_mode=["single-row", "single-cell"],
-        key=key,
         column_config={
             "Move %": st.column_config.NumberColumn(format="%+.2f"),
             "Major-news likelihood": st.column_config.ProgressColumn(
@@ -371,19 +386,13 @@ def _render_report(report: ScanReport) -> None:
     full_table = _results_table(report)
     if not any(r.brief or r.brief_error for r in report.results):
         full_table = full_table.drop(columns="Brief")  # always empty on Jev-only scans
-    # Clicks are handled by callbacks that record which company to open; the
-    # pop-up opens on that one run and the request is used up, so closing it
-    # needs no rerun (a rerun on close jumped the page back to the top). The
-    # table ticks are cleared before the tables draw, so a row can be clicked
-    # again. The report (and the filter, below) are in the keys, so a row index
-    # never carries over to a different table.
+    # Every way of opening a company (chart dot, flagged-list button, search
+    # box) records it via a callback; the pop-up opens on that one run and the
+    # request is used up, so closing it needs no rerun (a rerun on close jumped
+    # the page back to the top).
     report_id = report.started_at
     chart_key = f"scan_chart_{report_id}"
-    flagged_key = f"scan_flagged_{report_id}"
     to_open = st.session_state.pop("scan_open", None)
-    if to_open:
-        for key in [k for k in st.session_state if str(k).startswith(("scan_flagged_", "scan_table_"))]:
-            st.session_state[key] = _NO_SELECTION
 
     st.subheader("Where every company landed")
     st.caption("Each dot is one company. Dots in the shaded zones were flagged for a full brief. "
@@ -395,10 +404,15 @@ def _render_report(report: ScanReport) -> None:
 
     flagged = full_table[full_table["Flagged"] == "yes"]
     st.subheader(f"Flagged for a full brief ({len(flagged)})")
-    st.caption("Strongest signal first. Click a row to see the headlines behind it and the full brief.")
-    _scan_table(
-        flagged[["Ticker", "Company", "Why", "Major-news likelihood", "Move %"]],
-        key=flagged_key, report_id=report_id, height=min(len(flagged), 10) * 35 + 38,
+    st.caption("Strongest signal first. Click a company to see the headlines behind it and the brief.")
+    _flagged_list(flagged, report_id)
+
+    names = dict(zip(full_table["Ticker"], full_table["Company"]))
+    lookup_key = f"scan_lookup_{report_id}"
+    st.selectbox(
+        f"Or look up any of the {len(full_table)} companies", sorted(names, key=lambda t: (names[t] or t).lower()),
+        index=None, placeholder="Type a company name or ticker", key=lookup_key,
+        format_func=lambda t: f"{names[t] or t} ({t})", on_change=_on_lookup, args=(lookup_key, report_id),
     )
 
     with st.expander(f"All {len(full_table)} companies"):
@@ -408,7 +422,7 @@ def _render_report(report: ScanReport) -> None:
         table = full_table
         if show != "All":
             table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
-        _scan_table(table, key=f"scan_table_{report_id}_{show}", report_id=report_id)
+        _scan_table(table)
 
     if to_open and to_open[0] == report_id:
         _open_scan_detail(report, to_open[1])

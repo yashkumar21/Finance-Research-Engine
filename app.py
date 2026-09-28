@@ -43,6 +43,7 @@ for _key in ("GOOGLE_API_KEY", "FINNHUB_API_KEY", "TYPESAFE_API_KEY", "GOOGLE_GE
         os.environ[_key] = _value
 
 import asyncio  # noqa: E402
+from functools import partial  # noqa: E402
 
 import altair as alt  # noqa: E402
 import pandas as pd  # noqa: E402
@@ -207,7 +208,7 @@ def _results_table(report: ScanReport) -> pd.DataFrame:
             "Flagged": "yes" if r.decision.escalate else "no",
             "Why": _why(r),
             "Major-news likelihood": s.material_event if s else None,
-            "Move %": r.pct_change,
+            "Move %": round(r.pct_change, 2) + 0.0 if r.pct_change is not None else None,  # no "-0.00"
             "News tone": s.sentiment if s else "n/a",
             "Headlines": r.headline_count,
             "Brief": "yes" if r.brief else ("failed" if r.brief_error else ""),
@@ -300,15 +301,35 @@ def _scan_chart(table: pd.DataFrame, report: ScanReport) -> alt.LayerChart:
     return chart
 
 
-def _scan_table(table: pd.DataFrame, key: str, height: int | str = "auto") -> list[str]:
-    """A clickable results table; returns the selected ticker, if any."""
-    selection = st.dataframe(
+_NO_SELECTION = {"selection": {"rows": [], "columns": [], "cells": []}}
+
+
+def _on_table_pick(key: str, tickers: list[str], report_id: str) -> None:
+    """Row or cell clicked: remember which company's pop-up to open."""
+    sel = st.session_state[key]["selection"]
+    rows = sel.get("rows") or [cell[0] for cell in sel.get("cells", [])]
+    if rows and rows[0] < len(tickers):
+        st.session_state["scan_open"] = (report_id, tickers[rows[0]])
+
+
+def _on_chart_pick(key: str, report_id: str) -> None:
+    picks = st.session_state[key]["selection"].get("pick") or []
+    ticker = next((p.get("Ticker") for p in picks if p.get("Ticker")), None)
+    if ticker:
+        st.session_state["scan_open"] = (report_id, ticker)
+
+
+def _scan_table(table: pd.DataFrame, key: str, report_id: str, height: int | str = "auto") -> None:
+    """A clickable results table. Cell selection is on as well as the row
+    checkbox, so clicking anywhere in a row opens it - most visitors click
+    the company name, not the checkbox."""
+    st.dataframe(
         table,
         hide_index=True,
         width="stretch",
         height=height,
-        on_select="rerun",
-        selection_mode="single-row",
+        on_select=partial(_on_table_pick, key, table["Ticker"].tolist(), report_id),
+        selection_mode=["single-row", "single-cell"],
         key=key,
         column_config={
             "Move %": st.column_config.NumberColumn(format="%+.2f"),
@@ -320,8 +341,6 @@ def _scan_table(table: pd.DataFrame, key: str, height: int | str = "auto") -> li
             "Why": st.column_config.TextColumn(width="medium", help="Why the ticker was flagged for a full brief"),
         },
     )
-    rows = selection.selection.rows
-    return [table.iloc[rows[0]]["Ticker"]] if rows and rows[0] < len(table) else []
 
 
 def _render_report(report: ScanReport) -> None:
@@ -332,29 +351,34 @@ def _render_report(report: ScanReport) -> None:
     full_table = _results_table(report)
     if not any(r.brief or r.brief_error for r in report.results):
         full_table = full_table.drop(columns="Brief")  # always empty on Jev-only scans
-    # Closing the pop-up bumps the generation so the chart and tables redraw with
-    # nothing selected; otherwise the next rerun would reopen it. The report (and
-    # the filter, below) are in the keys too, so a row index never carries over
-    # to a different table.
-    gen = st.session_state.setdefault("scan_table_gen", 0)
-    keys = f"{report.started_at}_{gen}"
-    picked = []  # tickers selected in the chart or a table; at most one per run
+    # Clicks are handled by callbacks that record which company to open; the
+    # pop-up opens on that one run and the request is used up, so closing it
+    # needs no rerun (a rerun on close jumped the page back to the top). The
+    # table ticks are cleared before the tables draw, so a row can be clicked
+    # again. The report (and the filter, below) are in the keys, so a row index
+    # never carries over to a different table.
+    report_id = report.started_at
+    chart_key = f"scan_chart_{report_id}"
+    flagged_key = f"scan_flagged_{report_id}"
+    to_open = st.session_state.pop("scan_open", None)
+    if to_open:
+        for key in [k for k in st.session_state if str(k).startswith(("scan_flagged_", "scan_table_"))]:
+            st.session_state[key] = _NO_SELECTION
 
     st.subheader("Where every company landed")
     st.caption("Each dot is one company. Dots in the shaded zones were flagged for a full brief. "
                "Hover for details, click to open it.")
-    event = st.altair_chart(
-        _scan_chart(full_table, report), width="stretch", on_select="rerun",
-        selection_mode="pick", key=f"scan_chart_{keys}",
+    st.altair_chart(
+        _scan_chart(full_table, report), width="stretch", selection_mode="pick", key=chart_key,
+        on_select=partial(_on_chart_pick, chart_key, report_id),
     )
-    picked += [p["Ticker"] for p in event.selection.get("pick", []) if p.get("Ticker")]
 
     flagged = full_table[full_table["Flagged"] == "yes"]
     st.subheader(f"Flagged for a full brief ({len(flagged)})")
     st.caption("Strongest signal first. Click a row to see the headlines behind it and the full brief.")
-    picked += _scan_table(
+    _scan_table(
         flagged[["Ticker", "Company", "Why", "Major-news likelihood", "Move %"]],
-        key=f"scan_flagged_{keys}", height=min(len(flagged), 10) * 35 + 38,
+        key=flagged_key, report_id=report_id, height=min(len(flagged), 10) * 35 + 38,
     )
 
     with st.expander(f"All {len(full_table)} companies"):
@@ -364,10 +388,10 @@ def _render_report(report: ScanReport) -> None:
         table = full_table
         if show != "All":
             table = table[table["Flagged"] == ("yes" if show == "Flagged" else "no")]
-        picked += _scan_table(table, key=f"scan_table_{keys}_{show}")
+        _scan_table(table, key=f"scan_table_{report_id}_{show}", report_id=report_id)
 
-    if picked:
-        _open_scan_detail(report, picked[0])
+    if to_open and to_open[0] == report_id:
+        _open_scan_detail(report, to_open[1])
 
     briefed = [r for r in report.results if r.brief or r.brief_error]
     if briefed:
@@ -383,15 +407,11 @@ def _render_report(report: ScanReport) -> None:
                     st.error(f"Brief failed: {r.brief_error}")
 
 
-def _clear_scan_selection() -> None:
-    st.session_state["scan_table_gen"] = st.session_state.get("scan_table_gen", 0) + 1
-
-
 def _open_scan_detail(report: ScanReport, ticker: str) -> None:
     """Show one row's detail in a pop-up, so the brief isn't buried below the table."""
     result = next((r for r in report.results if r.ticker == ticker), None)
     title = _display_name(ticker, result.company_name if result else None)
-    st.dialog(title, width="large", on_dismiss=_clear_scan_selection)(_render_scan_detail)(report, ticker)
+    st.dialog(title, width="large")(_render_scan_detail)(report, ticker)
 
 
 def _render_scan_detail(report: ScanReport, ticker: str) -> None:
@@ -415,7 +435,7 @@ def _render_scan_detail(report: ScanReport, ticker: str) -> None:
     else:
         material = result.screen.material_event if result.screen else None
         _brief_flow(ticker, result.decision.escalate, "scan_brief",
-                    close_call=_is_close_call(material, result.decision.escalate))
+                    close_call=_is_close_call(material, result.decision.escalate), in_dialog=True)
 
 
 def _render_live_scan() -> None:
@@ -548,7 +568,7 @@ def _render_verdict(
                 help=f"Jev's confidence in this call: {screen['sentiment_confidence']:.0%}",
             )
         cols[2].metric(
-            "Price move", f"{move:+.2f}%" if move is not None else "n/a",
+            "Price move", f"{round(move, 2) + 0.0:+.2f}%" if move is not None else "n/a",  # + 0.0: no "-0.00%"
             help=f"Moves of {move_limit:.0f}% or more are flagged for a full brief.",
         )
 
@@ -588,10 +608,12 @@ def _stored_brief(state_key: str, ticker: str) -> dict | None:
     return stored if isinstance(stored, dict) and stored.get("ticker") == ticker else None
 
 
-def _brief_flow(ticker: str, flagged: bool, state_key: str, close_call: bool = False) -> None:
+def _brief_flow(ticker: str, flagged: bool, state_key: str, close_call: bool = False,
+                in_dialog: bool = False) -> None:
     """The "Get the full research brief" button, its progress box and the brief.
 
     state_key keeps each place's brief separate (Single ticker vs. Daily Scan).
+    in_dialog reruns only the pop-up once the brief is ready, so it stays open.
     """
     done = _stored_brief(state_key, ticker) is not None
     with st.container(horizontal=True, vertical_alignment="center"):
@@ -658,7 +680,8 @@ def _brief_flow(ticker: str, flagged: bool, state_key: str, close_call: bool = F
                     "ticker": ticker, "brief": brief, "seconds": time.perf_counter() - started,
                 }
         if _stored_brief(state_key, ticker):
-            st.rerun()  # redraw with the button disabled and the brief below
+            # Redraw with the button disabled and the brief below.
+            st.rerun(scope="fragment" if in_dialog else "app")
 
     stored = _stored_brief(state_key, ticker)
     if stored:
@@ -803,5 +826,9 @@ with tab_scan:
     if not reports:
         st.info("No scans yet. Run `python run_scan.py --universe sp100 --no-escalate` to create one.")
     else:
-        selected = st.selectbox("Scan report", reports, format_func=_report_label)
+        # Open on the same scan the top strip summarises, not whichever report is newest.
+        latest = _latest_index_report()
+        default = next((i for i, p in enumerate(reports) if latest and
+                        _load_report(str(p), p.stat().st_mtime).started_at == latest[0].started_at), 0)
+        selected = st.selectbox("Scan report", reports, index=default, format_func=_report_label)
         _render_report(_load_report(str(selected), selected.stat().st_mtime))

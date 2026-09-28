@@ -457,19 +457,6 @@ def _render_report(report: ScanReport) -> None:
     if to_open and to_open[0] == report_id:
         _open_scan_detail(report, to_open[1])
 
-    briefed = [r for r in report.results if r.brief or r.brief_error]
-    if briefed:
-        st.subheader("Briefs for flagged tickers")
-        for r in briefed:
-            with st.expander(f"{_display_name(r.ticker, r.company_name)} - "
-                             f"{'; '.join(_plain_reason(x) for x in r.decision.reasons)}"):
-                if r.brief:
-                    st.markdown(_brief_md(r.brief.brief_markdown))
-                    if r.brief.usage:
-                        st.caption(f"Estimated Gemini cost: ${r.brief.usage.cost_usd:.4f}")
-                else:
-                    st.error(f"Brief failed: {r.brief_error}")
-
 
 def _open_scan_detail(report: ScanReport, ticker: str) -> None:
     """Show one row's detail in a pop-up, so the brief isn't buried below the table."""

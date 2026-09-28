@@ -246,13 +246,21 @@ screened, 0 failures, 20 flagged (19%), and all 10 capped briefs generated - a m
 brief** (range $0.0049-0.0066; ~6,300 input / 1,500 output tokens, Gemini estimated from tokens).
 The run took 6.8 minutes.
 
-**What a nightly S&P 500 run costs**, at that brief cost and 19-21% of tickers flagged:
+S&P 500 end to end (28 Sep, `--max-briefs 10`, `data/demo/scan-2026-09-28T104858Z.json`): 503/503,
+0 failures, 94 flagged (19%), all 10 capped briefs generated at $0.0044-0.0069 each (mean $0.0058),
+about **$0.08 in all** ($0.022 of Jev + $0.058 of Gemini), median Jev latency 437 ms.
+
+**What a nightly S&P 500 run costs**, at $0.0057 per brief and 19-21% of tickers flagged:
 
 | | Per night | Per month (~22 weeknights) |
 |---|---|---|
 | A. Full Gemini brief for every ticker (503 briefs) | ~$2.87 | ~$63 |
-| B. Jev screen all 503, brief only the ~96-108 flagged | ~$0.57-0.64 | ~$13-14 |
-| **Saving** | **~78-80%** | **~$50/month** |
+| B. Jev screen all 503, brief only the ~94-108 flagged | ~$0.56-0.64 | ~$12-14 |
+| **Saving** | **~78-81%** | **~$50/month** |
+
+B is the cost of briefing everything the screen flags. The nightly job as configured spends less: it
+caps briefs at 10 (`--max-briefs 10`), about $0.08 a night, and the other flagged tickers are briefed
+on demand.
 
 B also makes ~100 Gemini briefs a night instead of 503 - with three Gemini requests per brief, well
 within paid-tier rate limits, where briefing everything would not fit Gemini's free tier at all.

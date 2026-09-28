@@ -826,12 +826,18 @@ def _render_last_scan_summary() -> None:
         )
         screened_cost = report.jev_cost_usd + report.tickers_escalated * BRIEF_COST_USD
         brief_all_cost = report.tickers_scanned * BRIEF_COST_USD
+        # What this scan actually spent: briefs are capped per night, so it's
+        # less than briefing everything flagged (the figure the tile compares).
+        spent = report.jev_cost_usd + report.gemini_cost_usd_estimate
+        briefs = f"{report.briefs_generated} brief{'s' if report.briefs_generated != 1 else ''}"
         cols[3].metric(
-            "Nightly cost with the screen", f"${screened_cost:.2f}",
+            "Cost to brief only what's flagged", f"${screened_cost:.2f}",
             delta=f"-{1 - screened_cost / brief_all_cost:.0%} vs ${brief_all_cost:.2f} to brief all",
             delta_color="inverse",
-            help=f"Jev screening (${report.jev_cost_usd:.3f}, this scan) plus a Gemini brief for each flagged "
-                 f"ticker, against a brief for every ticker. Briefs at the measured ${BRIEF_COST_USD} each.",
+            help=_md(f"Jev screening (${report.jev_cost_usd:.3f}, this scan) plus a Gemini brief for each of the "
+                     f"{report.tickers_escalated} flagged tickers, against a brief for every ticker. Briefs at the "
+                     f"measured ${BRIEF_COST_USD} each. The nightly job caps briefs, so this scan actually spent "
+                     f"${spent:.2f} (Jev + {briefs}); other flagged tickers are briefed on demand."),
         )
         st.caption(
             f"Screening the whole {universe} cost ${report.jev_cost_usd:.3f}. On a held-out, hand-labeled test "

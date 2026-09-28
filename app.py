@@ -86,6 +86,11 @@ HELD_OUT = {
     "report": "eval/results/compare-2026-09-27T203931Z.md",
 }
 
+# Measured mean cost of one Gemini research brief (README, "What a nightly S&P 500
+# run costs": 10 briefs in runs/scan-2026-09-27T205045Z.json, range $0.0049-0.0066).
+# The deployed app has no briefed S&P 500 scan to measure from, so it's pinned here.
+BRIEF_COST_USD = 0.0057
+
 METHODOLOGY_MD = f"""
 **How a nightly scan works**
 
@@ -120,9 +125,11 @@ METHODOLOGY_MD = f"""
 
 st.title("📈 Finance Research Engine")
 st.caption(
-    "Multi-agent research: quantitative data + news sentiment, run in parallel "
-    "and synthesized into a brief. A cheap Jev screen decides which tickers in a "
-    "nightly scan deserve one."
+    "A cheap model decides which companies deserve an expensive AI research brief. Each night **Jev** "
+    "(TypeSafe's small, fast decision model) reads the headlines for every S&P 500 company and flags the "
+    "few with likely major news; only those get the full multi-agent Gemini brief (quantitative data and "
+    "news sentiment, synthesized by an analyst agent). The same screen-first pattern fits any high-volume "
+    "workload where most items don't need a large model - support tickets, document intake, claims triage."
 )
 
 
@@ -800,13 +807,22 @@ def _render_last_scan_summary() -> None:
                  "US trading day.",
         )
         cols[1].metric("Tickers screened", report.tickers_scanned)
-        cols[2].metric("Flagged for a full brief", report.tickers_escalated)
+        cols[2].metric(
+            "Flagged for a full brief", report.tickers_escalated,
+            delta=f"{avoided} cleared ({avoided / report.tickers_scanned:.0%})", delta_color="off", delta_arrow="off",
+            help="Tickers the screen cleared need no expensive Gemini brief",
+        )
+        screened_cost = report.jev_cost_usd + report.tickers_escalated * BRIEF_COST_USD
+        brief_all_cost = report.tickers_scanned * BRIEF_COST_USD
         cols[3].metric(
-            "Research briefs avoided", f"{avoided} ({avoided / report.tickers_scanned:.0%})",
-            help="Tickers the screen cleared, so no expensive Gemini brief was needed",
+            "Nightly cost with the screen", f"${screened_cost:.2f}",
+            delta=f"-{1 - screened_cost / brief_all_cost:.0%} vs ${brief_all_cost:.2f} to brief all",
+            delta_color="inverse",
+            help=f"Jev screening (${report.jev_cost_usd:.3f}, this scan) plus a Gemini brief for each flagged "
+                 f"ticker, against a brief for every ticker. Briefs at the measured ${BRIEF_COST_USD} each.",
         )
         st.caption(
-            f"Screening cost ${report.jev_cost_usd:.3f} for the whole {universe}. On a held-out, hand-labeled test "
+            f"Screening the whole {universe} cost ${report.jev_cost_usd:.3f}. On a held-out, hand-labeled test "
             f"set the same policy caught {HELD_OUT['caught']} of {HELD_OUT['events']} material events. "
             "Details in the Daily Scan tab."
         )
@@ -865,18 +881,24 @@ with tab_brief:
 
 
 with tab_scan:
-    missing_scan_keys = [k for k in ("TYPESAFE_API_KEY", "FINNHUB_API_KEY") if not os.environ.get(k)]
-    if missing_scan_keys:
-        st.warning(f"Live scans need {', '.join(missing_scan_keys)}.")
-    _render_live_scan()
-
     reports = list_reports()
+    # The report picker and live scan sit at the bottom, below the chart and
+    # flagged list, but the picker decides what they show - so draw the report
+    # into a container placed above it.
+    report_area = st.container()
     if not reports:
-        st.info("No scans yet. Run `python run_scan.py --universe sp100 --no-escalate` to create one.")
-    else:
+        report_area.info("No scans yet. Run `python run_scan.py --universe sp100 --no-escalate` to create one.")
+    st.divider()
+    if reports:
         # Open on the same scan the top strip summarises, not whichever report is newest.
         latest = _latest_index_report()
         default = next((i for i, p in enumerate(reports) if latest and
                         _load_report(str(p), p.stat().st_mtime).started_at == latest[0].started_at), 0)
-        selected = st.selectbox("Scan report", reports, index=default, format_func=_report_label)
-        _render_report(_load_report(str(selected), selected.stat().st_mtime))
+        selected = st.selectbox("Browse other scan reports", reports, index=default, format_func=_report_label)
+    missing_scan_keys = [k for k in ("TYPESAFE_API_KEY", "FINNHUB_API_KEY") if not os.environ.get(k)]
+    if missing_scan_keys:
+        st.warning(f"Live scans need {', '.join(missing_scan_keys)}.")
+    _render_live_scan()
+    if reports:
+        with report_area:
+            _render_report(_load_report(str(selected), selected.stat().st_mtime))

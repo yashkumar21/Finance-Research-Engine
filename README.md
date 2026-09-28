@@ -137,7 +137,7 @@ weekend scan sees Friday's data again. Save as
   <key>ProgramArguments</key>
   <array>
     <string>/path/to/Finance Research Engine/.venv/bin/python</string>
-    <string>run_scan.py</string><string>--universe</string><string>sp500</string><string>--no-escalate</string>
+    <string>run_scan.py</string><string>--universe</string><string>sp500</string><string>--max-briefs</string><string>10</string>
   </array>
   <!-- Local time, Tue-Sat (launchd weekday 0 = Sunday): 03:00 IST is 17:30 ET the previous
        day (16:30 while the US is on standard time), so each run follows a Mon-Fri close. -->
@@ -162,6 +162,9 @@ tail -f ~/Library/Logs/finance-research-engine-scan.log                         
 launchctl bootout gui/$(id -u)/com.finance-research-engine.scan                                  # uninstall
 ```
 
+- `--max-briefs 10` briefs the 10 strongest escalations each night (big price moves first, then the
+  likeliest material events) - about 6 cents of Gemini at the measured $0.0057 per brief - so the app
+  shows a ready brief for those; any other flagged ticker can still be briefed on demand.
 - API keys come from the repo's `.env` (`run_scan.py` loads it), so none go in the plist.
 - launchd runs a missed job when the Mac wakes, but not if it was shut down. To wake it for the run,
   `sudo pmset repeat wakeorpoweron TWRFS 02:55:00`.
@@ -172,7 +175,7 @@ launchctl bootout gui/$(id -u)/com.finance-research-engine.scan                 
   no report, so the log shows the reason instead of 503 failed tickers.
 
 On Linux, the cron equivalent is
-`0 3 * * 2-6 cd /path/to/repo && .venv/bin/python run_scan.py --universe sp500 --no-escalate`.
+`0 3 * * 2-6 cd /path/to/repo && .venv/bin/python run_scan.py --universe sp500 --max-briefs 10`.
 
 ## Results
 

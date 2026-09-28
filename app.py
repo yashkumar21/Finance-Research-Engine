@@ -124,13 +124,15 @@ METHODOLOGY_MD = f"""
 """
 
 st.title("📈 Finance Research Engine")
-st.caption(
-    "A cheap model decides which companies deserve an expensive AI research brief. Each night **Jev** "
-    "(TypeSafe's small, fast decision model) reads the headlines for every S&P 500 company and flags the "
-    "few with likely major news; only those get the full multi-agent Gemini brief (quantitative data and "
-    "news sentiment, synthesized by an analyst agent). The same screen-first pattern fits any high-volume "
-    "workload where most items don't need a large model - support tickets, document intake, claims triage."
-)
+st.caption("A cheap AI model decides which companies deserve an expensive AI research brief.")
+with st.expander("What is this?"):
+    st.markdown(
+        "Each night **Jev** (TypeSafe's small, fast decision model) reads the headlines for every S&P 500 "
+        "company and flags the few with likely major news. Only those get the full multi-agent Gemini brief "
+        "(quantitative data and news sentiment, synthesized by an analyst agent).\n\n"
+        "The same screen-first pattern fits any high-volume workload where most items don't need a large "
+        "model - support tickets, document intake, claims triage."
+    )
 
 
 
@@ -353,26 +355,34 @@ def _flagged_list(flagged: pd.DataFrame, report_id: str) -> None:
     """Flagged companies as a list of buttons under a fixed header. Buttons, not
     a clickable table: Streamlit's table selection kept misfiring as a way to
     open a pop-up (a row that couldn't be clicked twice, or the wrong row
-    opening). The value that triggered the flag is in bold."""
-    widths = [3, 2, 1]
+    opening). The value that triggered the flag is in bold. Companies whose
+    brief the scan already generated come first, so the first clicks show one -
+    a capped brief budget goes to big movers first, not the top of this list."""
+    has_briefs = "Brief" in flagged and (flagged["Brief"] == "yes").any()
+    if has_briefs:
+        flagged = flagged.sort_values("Brief", key=lambda b: b != "yes", kind="stable")
+    labels = ["Company", "Major-news likelihood", "Move %"] + (["Brief"] if has_briefs else [])
+    widths = [3, 2, 1, 1][: len(labels)]
     threshold = DEFAULT_POLICY.material_event_threshold
     move_limit = DEFAULT_POLICY.price_move_threshold_pct
     with st.container(border=True):
-        for col, label in zip(st.columns(widths), ["Company", "Major-news likelihood", "Move %"]):
+        for col, label in zip(st.columns(widths), labels):
             col.markdown(f"**{label}**")
         with st.container(height=400 if len(flagged) > 8 else "content", border=False):
             for row in flagged.to_dict("records"):
-                name, likelihood, move = st.columns(widths, vertical_alignment="center")
-                name.button(
+                cols = st.columns(widths, vertical_alignment="center")
+                cols[0].button(
                     f"{row['Company'] or row['Ticker']} ({row['Ticker']})", key=f"open_{report_id}_{row['Ticker']}",
                     type="tertiary", on_click=_request_open, args=(report_id, row["Ticker"]),
                 )
                 p = row["Major-news likelihood"]
                 if pd.notna(p):
-                    likelihood.markdown(f"**{p:.0%}**" if p >= threshold else f"{p:.0%}")
+                    cols[1].markdown(f"**{p:.0%}**" if p >= threshold else f"{p:.0%}")
                 m = row["Move %"]
                 if pd.notna(m):
-                    move.markdown(f"**{m:+.2f}%**" if abs(m) >= move_limit else f"{m:+.2f}%")
+                    cols[2].markdown(f"**{m:+.2f}%**" if abs(m) >= move_limit else f"{m:+.2f}%")
+                if has_briefs and row["Brief"] == "yes":
+                    cols[3].markdown(":green[Ready]")
 
 
 def _scan_table(table: pd.DataFrame) -> None:
@@ -420,7 +430,9 @@ def _render_report(report: ScanReport) -> None:
 
     flagged = full_table[full_table["Flagged"] == "yes"]
     st.subheader(f"Flagged for a full brief ({len(flagged)})")
-    st.caption("Strongest signal first. Click a company to see the headlines behind it and the brief. "
+    briefed_first = "Brief" in flagged and (flagged["Brief"] == "yes").any()
+    st.caption(("Companies with a ready brief first, then strongest signal. " if briefed_first
+                else "Strongest signal first. ") + "Click a company to see the headlines behind it and the brief. "
                f"Bold marks what flagged it: a likelihood of {DEFAULT_POLICY.material_event_threshold:.0%} or more, "
                f"or a move of {DEFAULT_POLICY.price_move_threshold_pct:g}% or more either way.")
     _flagged_list(flagged, report_id)

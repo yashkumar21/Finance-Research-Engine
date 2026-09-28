@@ -157,6 +157,26 @@ def _brief_md(markdown: str) -> str:
     return _md(smaller)
 
 
+_BOTTOM_LINE = re.compile(r"^## Bottom line[ \t]*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+
+
+def _compact_brief(markdown: str) -> None:
+    """A brief for the pop-up: the Bottom line up front, the rest (key figures,
+    news, things to watch, sources) behind an expander so the pop-up stays short.
+    Falls back to the whole brief if it has no Bottom line section."""
+    match = _BOTTOM_LINE.search(markdown)
+    if not match:
+        with st.container(border=True):
+            st.markdown(_brief_md(markdown))
+        return
+    as_of = re.search(r"^\*Data as of .*\*$", markdown, re.MULTILINE)
+    with st.container(border=True):
+        st.markdown("**Research brief: bottom line**" + (f" · {as_of[0]}" if as_of else ""))
+        st.markdown(_md(match[1].strip()))
+        with st.expander("Read the full brief - key figures, news, what to watch, sources"):
+            st.markdown(_brief_md(markdown[match.end():].strip()))
+
+
 def _usd(amount: float) -> str:
     """Enough decimals that a few Jev calls don't round to $0.0000."""
     return f"${amount:.4f}" if amount >= 0.001 else f"${amount:.6f}"
@@ -429,8 +449,7 @@ def _render_scan_detail(report: ScanReport, ticker: str) -> None:
         result.decision, result.pct_change, headlines, caption=caption, when=f"on {when}",
     )
     if result.brief:
-        with st.container(border=True):
-            st.markdown(_brief_md(result.brief.brief_markdown))
+        _compact_brief(result.brief.brief_markdown)
         st.caption("Brief generated during the scan.")
     else:
         material = result.screen.material_event if result.screen else None
@@ -691,8 +710,11 @@ def _brief_flow(ticker: str, flagged: bool, state_key: str, close_call: bool = F
         if not brief.sentiment.get("success", True):
             st.warning(f"Sentiment data unavailable for {brief.ticker}: {brief.sentiment.get('error')}")
 
-        with st.container(border=True):
-            st.markdown(_brief_md(brief.brief_markdown))
+        if in_dialog:
+            _compact_brief(brief.brief_markdown)
+        else:
+            with st.container(border=True):
+                st.markdown(_brief_md(brief.brief_markdown))
         st.caption(f"Brief generated in {seconds:.0f} s.")
 
         with st.expander("Technical details"):

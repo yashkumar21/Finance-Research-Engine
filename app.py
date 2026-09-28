@@ -822,22 +822,27 @@ def _render_last_scan_summary() -> None:
         cols[2].metric(
             "Flagged for a full brief", report.tickers_escalated,
             delta=f"{avoided} cleared ({avoided / report.tickers_scanned:.0%})", delta_color="off", delta_arrow="off",
-            help="Tickers the screen cleared need no expensive Gemini brief",
+            help=f"Only these companies get the expensive Gemini brief. The other {avoided} were cleared by "
+                 "the cheap Jev screen.",
         )
         screened_cost = report.jev_cost_usd + report.tickers_escalated * BRIEF_COST_USD
         brief_all_cost = report.tickers_scanned * BRIEF_COST_USD
         # What this scan actually spent: briefs are capped per night, so it's
         # less than briefing everything flagged (the figure the tile compares).
         spent = report.jev_cost_usd + report.gemini_cost_usd_estimate
-        briefs = f"{report.briefs_generated} brief{'s' if report.briefs_generated != 1 else ''}"
+        n, flagged, scanned = report.briefs_generated, report.tickers_escalated, report.tickers_scanned
+        actual = (
+            f"This scan briefed only the top {n}, so it actually cost **${spent:.2f}**. "
+            "The rest can be briefed on demand." if n
+            else f"This scan ran no briefs, so it actually cost only the **${spent:.2f}** screen."
+        )
         cols[3].metric(
             "Cost to brief only what's flagged", f"${screened_cost:.2f}",
             delta=f"-{1 - screened_cost / brief_all_cost:.0%} vs ${brief_all_cost:.2f} to brief all",
             delta_color="inverse",
-            help=_md(f"Jev screening (${report.jev_cost_usd:.3f}, this scan) plus a Gemini brief for each of the "
-                     f"{report.tickers_escalated} flagged tickers, against a brief for every ticker. Briefs at the "
-                     f"measured ${BRIEF_COST_USD} each. The nightly job caps briefs, so this scan actually spent "
-                     f"${spent:.2f} (Jev + {briefs}); other flagged tickers are briefed on demand."),
+            help=_md(f"Briefing only the {flagged} flagged companies: ${report.jev_cost_usd:.2f} for Jev to screen "
+                     f"all {scanned}, plus {flagged} briefs at ${BRIEF_COST_USD} each = **${screened_cost:.2f}**. "
+                     f"Briefing all {scanned} would cost **${brief_all_cost:.2f}**.\n\n{actual}"),
         )
         st.caption(
             f"Screening the whole {universe} cost ${report.jev_cost_usd:.3f}. On a held-out, hand-labeled test "

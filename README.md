@@ -123,8 +123,10 @@ a few briefs a minute, so cap briefs with `--max-briefs` rather than escalating 
 
 ### Nightly run (macOS launchd)
 
-US markets close at 16:00 ET, so schedule after that, on nights following a trading day only - a
-weekend scan sees Friday's data again. Save as
+US markets close at 16:00 ET, so schedule after that and before the next open, on days following a
+trading day only - a weekend scan sees Friday's data again. The job runs at 09:00 IST, when the Mac is
+normally on: a 03:00 run needed the Mac woken for it, and a job that starts the moment a Mac wakes can
+beat the network back up and fail its first tickers. Save as
 `~/Library/LaunchAgents/com.finance-research-engine.scan.plist`, fixing the two paths:
 
 ```xml
@@ -139,15 +141,16 @@ weekend scan sees Friday's data again. Save as
     <string>/path/to/Finance Research Engine/.venv/bin/python</string>
     <string>run_scan.py</string><string>--universe</string><string>sp500</string><string>--max-briefs</string><string>10</string>
   </array>
-  <!-- Local time, Tue-Sat (launchd weekday 0 = Sunday): 03:00 IST is 17:30 ET the previous
-       day (16:30 while the US is on standard time), so each run follows a Mon-Fri close. -->
+  <!-- Local time, Tue-Sat (launchd weekday 0 = Sunday): 09:00 IST is 23:30 ET the previous
+       day (22:30 while the US is on standard time), so each run follows a Mon-Fri close and
+       ends long before the next open (19:00 IST, 20:00 on US standard time). -->
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>StandardOutPath</key><string>/Users/you/Library/Logs/finance-research-engine-scan.log</string>
   <key>StandardErrorPath</key><string>/Users/you/Library/Logs/finance-research-engine-scan.log</string>
@@ -166,8 +169,9 @@ launchctl bootout gui/$(id -u)/com.finance-research-engine.scan                 
   likeliest material events) - about 6 cents of Gemini at the measured $0.0057 per brief - so the app
   shows a ready brief for those; any other flagged ticker can still be briefed on demand.
 - API keys come from the repo's `.env` (`run_scan.py` loads it), so none go in the plist.
-- launchd runs a missed job when the Mac wakes, but not if it was shut down. To wake it for the run,
-  `sudo pmset repeat wakeorpoweron TWRFS 02:55:00`.
+- launchd runs a missed job when the Mac wakes, but not if it was shut down. A run that starts late
+  is fine any time before the US open. If the Mac is often asleep at 09:00, wake it for the run with
+  `sudo pmset repeat wakeorpoweron TWRFS 08:55:00` (and keep it plugged in).
 - Keeping the repo in `~/Desktop` or `~/Documents` can trip macOS privacy protection for background
   jobs ("Operation not permitted"). Test once with a small `--limit` job; if blocked, grant the Python
   binary Full Disk Access or move the repo elsewhere.
@@ -175,7 +179,7 @@ launchctl bootout gui/$(id -u)/com.finance-research-engine.scan                 
   no report, so the log shows the reason instead of 503 failed tickers.
 
 On Linux, the cron equivalent is
-`0 3 * * 2-6 cd /path/to/repo && .venv/bin/python run_scan.py --universe sp500 --max-briefs 10`.
+`0 9 * * 2-6 cd /path/to/repo && .venv/bin/python run_scan.py --universe sp500 --max-briefs 10`.
 
 ## Results
 

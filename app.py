@@ -768,7 +768,7 @@ def _latest_index_report() -> tuple[ScanReport, bool] | None:
     return None
 
 
-# The nightly job runs Tue-Sat at 03:00 IST, so the longest normal gap is
+# The nightly job runs Tue-Sat at 09:00 IST, so the longest normal gap is
 # Saturday to Tuesday - 3 days. Past this, a run was probably missed.
 STALE_SCAN_HOURS = 84
 
@@ -802,8 +802,9 @@ def _render_last_scan_summary() -> None:
             age, stale = "sample scan", False
         cols[0].metric(
             "Last nightly scan", when, delta=age, delta_color="inverse" if stale else "off", delta_arrow="off",
-            help=f"{universe}, Jev screening only. The scan runs Tuesday-Saturday at 03:00 IST, after each "
-                 "US trading day.",
+            help=f"{universe}, Jev screening"
+                 + (f" plus {report.briefs_generated} Gemini briefs" if report.briefs_generated else " only")
+                 + ". The scan runs Tuesday-Saturday at 09:00 IST, after each US trading day.",
         )
         cols[1].metric("Tickers screened", report.tickers_scanned)
         cols[2].metric(

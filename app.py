@@ -136,6 +136,9 @@ with st.expander("What is this?"):
 
 
 
+UNIVERSE_NAMES = {"sp500": "S&P 500", "sp100": "S&P 100", "live": "Live scan", "custom": "Custom list"}
+
+
 @st.cache_data
 def _load_report(path: str, mtime: float) -> ScanReport:
     """Parsed report; mtime is part of the cache key so rewrites reload."""
@@ -145,9 +148,7 @@ def _load_report(path: str, mtime: float) -> ScanReport:
 def _report_label(path: Path) -> str:
     report = _load_report(str(path), path.stat().st_mtime)
     when = datetime.fromisoformat(report.started_at).strftime("%-d %b %Y, %H:%M UTC")
-    universe = {"sp500": "S&P 500", "sp100": "S&P 100", "live": "Live scan", "custom": "Custom list"}.get(
-        report.universe, report.universe
-    )
+    universe = UNIVERSE_NAMES.get(report.universe, report.universe)
     n = report.briefs_generated
     mode = f"{n} brief{'s' if n != 1 else ''}" if report.escalation_enabled else "screening only"
     return f"{when} · {universe} · {report.tickers_scanned} tickers · {mode}"
@@ -786,26 +787,51 @@ def _scan_age(finished_at: str) -> tuple[str, bool]:
     return age, hours > STALE_SCAN_HOURS
 
 
+def _selected_older_report(latest: ScanReport) -> ScanReport | None:
+    """The scan picked in the Daily Scan tab's report picker, if it isn't the latest.
+
+    The picker sits below this strip, but its value is already in session
+    state when the script reruns, so the strip can follow it."""
+    picked = st.session_state.get("scan_report_pick")
+    if picked is None or not Path(picked).exists():
+        return None
+    report = _load_report(str(picked), Path(picked).stat().st_mtime)
+    return None if report.started_at == latest.started_at else report
+
+
 def _render_last_scan_summary() -> None:
-    """The result up front: what the last nightly scan did, and why it can be trusted."""
-    latest = _latest_index_report()
-    if not latest:
+    """The result up front: what the last nightly scan did, and why it can be trusted.
+    Follows the report picked in the Daily Scan tab, labelled as an older scan."""
+    latest_entry = _latest_index_report()
+    if not latest_entry:
         return
-    report, is_sample = latest
+    latest, is_sample = latest_entry
+    older = _selected_older_report(latest)
+    report = older or latest
     avoided = report.tickers_scanned - report.tickers_escalated
     when = datetime.fromisoformat(report.started_at).strftime("%-d %b %Y")
-    universe = {"sp500": "S&P 500", "sp100": "S&P 100"}[report.universe]
+    latest_when = datetime.fromisoformat(latest.started_at).strftime("%-d %b %Y")
+    universe = UNIVERSE_NAMES.get(report.universe, report.universe)
     with st.container(border=True):
         cols = st.columns(4)
-        age, stale = _scan_age(report.finished_at)
+        # Staleness always tracks the newest scan: a missed nightly run should
+        # show however old the scan being browsed is.
+        age, stale = _scan_age(latest.finished_at)
         if is_sample:  # a committed sample report: its age says nothing about the nightly job
             age, stale = "sample scan", False
-        cols[0].metric(
-            "Last nightly scan", when, delta=age, delta_color="inverse" if stale else "off", delta_arrow="off",
-            help=f"{universe}, Jev screening"
-                 + (f" plus {report.briefs_generated} Gemini briefs" if report.briefs_generated else " only")
-                 + ". The scan runs Tuesday-Saturday at 09:00 IST, after each US trading day.",
-        )
+        contents = (f"{universe}, Jev screening"
+                    + (f" plus {report.briefs_generated} Gemini briefs" if report.briefs_generated else " only"))
+        if older:
+            cols[0].metric(
+                "Selected scan", when, delta="older scan", delta_color="off", delta_arrow="off",
+                help=f"{contents}. You picked this scan under Browse other scan reports; the latest nightly "
+                     f"scan is {latest_when}.",
+            )
+        else:
+            cols[0].metric(
+                "Last nightly scan", when, delta=age, delta_color="inverse" if stale else "off", delta_arrow="off",
+                help=f"{contents}. The scan runs Tuesday-Saturday at 09:00 IST, after each US trading day.",
+            )
         cols[1].metric("Tickers screened", report.tickers_scanned)
         cols[2].metric(
             "Flagged for a full brief", report.tickers_escalated,
@@ -833,7 +859,8 @@ def _render_last_scan_summary() -> None:
                      f"Briefing all {scanned} would cost **${brief_all_cost:.2f}**.\n\n{actual}"),
         )
         st.caption(
-            f"Screening the whole {universe} cost ${report.jev_cost_usd:.3f}. On a held-out, hand-labeled test "
+            f"Screening all {report.tickers_scanned} {universe} tickers cost ${report.jev_cost_usd:.3f}. "
+            "On a held-out, hand-labeled test "
             f"set the same policy caught {HELD_OUT['caught']} of {HELD_OUT['events']} material events. "
             "Details in the Daily Scan tab."
         )
@@ -905,7 +932,8 @@ with tab_scan:
         latest = _latest_index_report()
         default = next((i for i, p in enumerate(reports) if latest and
                         _load_report(str(p), p.stat().st_mtime).started_at == latest[0].started_at), 0)
-        selected = st.selectbox("Browse other scan reports", reports, index=default, format_func=_report_label)
+        selected = st.selectbox("Browse other scan reports", reports, index=default, format_func=_report_label,
+                                key="scan_report_pick")
     missing_scan_keys = [k for k in ("TYPESAFE_API_KEY", "FINNHUB_API_KEY") if not os.environ.get(k)]
     if missing_scan_keys:
         st.warning(f"Live scans need {', '.join(missing_scan_keys)}.")

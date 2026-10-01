@@ -250,17 +250,28 @@ screened, 0 failures, 20 flagged (19%), and all 10 capped briefs generated - a m
 brief** (range $0.0049-0.0066; ~6,300 input / 1,500 output tokens, Gemini estimated from tokens).
 The run took 6.8 minutes.
 
-S&P 500 end to end (28 Sep, `--max-briefs 10`, `data/demo/scan-2026-09-28T104858Z.json`): 503/503,
-0 failures, 94 flagged (19%), all 10 capped briefs generated at $0.0044-0.0069 each (mean $0.0058),
-about **$0.08 in all** ($0.022 of Jev + $0.058 of Gemini), median Jev latency 437 ms.
+S&P 500 end to end, `--max-briefs 10` (the three with 0 failures are in `data/demo/`):
 
-**What a nightly S&P 500 run costs**, at $0.0057 per brief and 19-21% of tickers flagged:
+| Run | Screening failures | Flagged | Briefs | Actually spent | Saving at row B |
+|---|---|---|---|---|---|
+| 28 Sep (manual) | 0 | 94 (19%) | 10 | ~$0.08 | 81% |
+| 29 Sep (nightly) | 9 | 103 (20%) | 10 | ~$0.08 | 79% |
+| 30 Sep (nightly) | 23 | 104 (21%) | 10 | ~$0.08 | 79% |
+| 30 Sep (manual re-run) | 0 | 85 (17%) | 10 | ~$0.08 | 82% |
+| 1 Oct (nightly) | 0 | 87 (17%) | 10 | ~$0.08 | 82% |
+
+Every brief cost $0.0044-0.0069 (mean $0.0058-0.0060 a night), and each night spent ~$0.02 of Jev +
+~$0.06 of Gemini. All failures were network errors: on 29 Sep the job started as the Mac woke, before
+Wi-Fi was back (the job then moved from 03:00 to 09:00), and on 30 Sep the Wi-Fi dropped mid-run.
+Failed tickers are escalated to be safe, which is why those two nights flagged more.
+
+**What a nightly S&P 500 run costs**, at $0.0057 per brief and 17-21% of tickers flagged:
 
 | | Per night | Per month (~22 weeknights) |
 |---|---|---|
 | A. Full Gemini brief for every ticker (503 briefs) | ~$2.87 | ~$63 |
-| B. Jev screen all 503, brief only the ~94-108 flagged | ~$0.56-0.64 | ~$12-14 |
-| **Saving** | **~78-81%** | **~$50/month** |
+| B. Jev screen all 503, brief only the ~85-108 flagged | ~$0.51-0.64 | ~$11-14 |
+| **Saving** | **~78-82%** | **~$50/month** |
 
 B is the cost of briefing everything the screen flags. The nightly job as configured spends less: it
 caps briefs at 10 (`--max-briefs 10`), about $0.08 a night, and the other flagged tickers are briefed
